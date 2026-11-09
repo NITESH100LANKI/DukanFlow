@@ -13,6 +13,8 @@ import OrdersPage from './pages/retailer/OrdersPage';
 import OrderDetailPage from './pages/retailer/OrderDetailPage';
 import DeskOrderQueuePage from './pages/desk/DeskOrderQueuePage';
 import DeskOrderDetailPage from './pages/desk/DeskOrderDetailPage';
+import DeskExportOrdersPage from './pages/desk/DeskExportOrdersPage';
+import AICapturePage from './pages/retailer/AICapturePage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -46,6 +48,22 @@ export const App: React.FC = () => {
                 element={
                   <ProtectedRoute allowedRoles={['retailer', 'order_desk']}>
                     <ProductCataloguePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="retailer/ai-capture"
+                element={
+                  <ProtectedRoute allowedRoles={['retailer']}>
+                    <AICapturePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="ai-capture"
+                element={
+                  <ProtectedRoute allowedRoles={['retailer']}>
+                    <AICapturePage />
                   </ProtectedRoute>
                 }
               />
@@ -86,6 +104,14 @@ export const App: React.FC = () => {
                 element={
                   <ProtectedRoute allowedRoles={['order_desk']}>
                     <DeskOrderQueuePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="desk/exports"
+                element={
+                  <ProtectedRoute allowedRoles={['order_desk']}>
+                    <DeskExportOrdersPage />
                   </ProtectedRoute>
                 }
               />

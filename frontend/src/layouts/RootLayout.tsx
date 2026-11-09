@@ -61,6 +61,14 @@ export const RootLayout: React.FC = () => {
                   {user.role === 'retailer' && (
                     <>
                       <Link
+                        to="/retailer/ai-capture"
+                        className="text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-lg transition-colors inline-flex items-center gap-1"
+                        title="AI Order Capture"
+                      >
+                        <span>✨</span>
+                        <span>{language === 'hi' ? 'स्मार्ट ऑर्डर' : 'AI Order'}</span>
+                      </Link>
+                      <Link
                         to="/retailer/cart"
                         className="relative inline-flex items-center gap-1 text-xs font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 px-3 py-1 rounded-lg transition-colors"
                         title="Shopping Cart"
@@ -83,12 +91,20 @@ export const RootLayout: React.FC = () => {
                   )}
 
                   {user.role === 'order_desk' && (
-                    <Link
-                      to="/desk/orders"
-                      className="text-xs font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 px-3 py-1 rounded-lg transition-colors"
-                    >
-                      {language === 'hi' ? 'ऑर्डर कतार' : 'Order Queue'}
-                    </Link>
+                    <>
+                      <Link
+                        to="/desk/orders"
+                        className="text-xs font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 px-3 py-1 rounded-lg transition-colors"
+                      >
+                        {language === 'hi' ? 'ऑर्डर कतार' : 'Order Queue'}
+                      </Link>
+                      <Link
+                        to="/desk/exports"
+                        className="text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1 rounded-lg transition-colors"
+                      >
+                        {language === 'hi' ? 'एक्सपोर्ट ऑर्डर्स' : 'Export Orders'}
+                      </Link>
+                    </>
                   )}
 
                   <Link

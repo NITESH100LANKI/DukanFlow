@@ -36,6 +36,27 @@ from app.schemas.order import (
     DeskOrderRejectRequest,
     DeskOrderApproveRequest,
 )
+from app.schemas.ai import (
+    AIExtractRequest,
+    ExtractedItem,
+    GeminiExtractionResult,
+    DraftProductRead,
+    AIOrderDraftLineRead,
+    AIOrderDraftLineUpdate,
+    AIOrderDraftRead,
+    AIDraftConfirmResponse,
+    DeskCorrectProductRequest,
+)
+from app.schemas.export import (
+    ExportProfileRead,
+    ExportableOrderItem,
+    ExportableOrderListResponse,
+    CreateExportBatchRequest,
+    ExportBatchLineRead,
+    ExportBatchRead,
+    ExportBatchListItem,
+    ExportBatchListResponse,
+)
 
 __all__ = [
     "RequestOTPRequest",
@@ -64,5 +85,14 @@ __all__ = [
     "DeskLineCorrectionRequest",
     "DeskOrderRejectRequest",
     "DeskOrderApproveRequest",
+    "AIExtractRequest",
+    "ExtractedItem",
+    "GeminiExtractionResult",
+    "DraftProductRead",
+    "AIOrderDraftLineRead",
+    "AIOrderDraftLineUpdate",
+    "AIOrderDraftRead",
+    "AIDraftConfirmResponse",
+    "DeskCorrectProductRequest",
 ]
 

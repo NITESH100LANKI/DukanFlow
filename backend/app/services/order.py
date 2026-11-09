@@ -22,6 +22,8 @@ from app.models.auth import Retailer, OrderDeskUser
 from app.models.catalogue import Product, Scheme
 from app.models.cart import Cart, CartLine
 from app.models.order import Order, OrderLine, OrderAuditLog
+from app.models.ai import RetailerAlias
+from app.services.ai_matcher import normalize_text
 from app.services.scheme_engine import calculate_line_scheme, TWO_PLACES
 
 
@@ -510,6 +512,179 @@ class OrderService:
                 "new_qty": new_qty_cases,
                 "new_free_cases": calc_result.free_qty_cases,
                 "new_fulfilment_cases": calc_result.fulfilment_qty_cases,
+                "reason": reason,
+            },
+        )
+        db.add(audit_entry)
+        db.commit()
+
+        return cls.get_order_by_id(db, order.id)
+
+    @classmethod
+    def correct_line_product(
+        cls,
+        db: Session,
+        order_id: uuid.UUID,
+        line_id: uuid.UUID,
+        new_product_id: uuid.UUID,
+        reason: str,
+        desk_user_id: uuid.UUID,
+    ) -> Order:
+        """
+        Order Desk product correction on a SUBMITTED order:
+        - Locks the order row using SELECT ... FOR UPDATE.
+        - Loads active new product and its active scheme.
+        - Re-snapshots product and scheme attributes on the order line.
+        - Recalculates line pricing, free goods bonus, discount, and net payable.
+        - Re-aggregates order totals.
+        - Controlled Learning: Saves a retailer-specific alias (retailer_id, raw_fragment -> new_product_id, source='desk').
+        - Records an immutable audit log entry.
+        - Commits and returns updated order.
+        """
+        if not reason or not reason.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A non-empty correction reason is required",
+            )
+
+        order = db.execute(
+            select(Order)
+            .options(
+                selectinload(Order.lines).selectinload(OrderLine.product),
+                selectinload(Order.audit_logs),
+                selectinload(Order.retailer),
+            )
+            .where(Order.id == order_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Order {order_id} not found",
+            )
+
+        if order.status != "SUBMITTED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot correct products on an order with status '{order.status}' (only SUBMITTED permitted)",
+            )
+
+        target_line = next((l for l in order.lines if l.id == line_id), None)
+        if not target_line:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Line item {line_id} not found on order {order_id}",
+            )
+
+        new_product = db.execute(
+            select(Product).where(Product.id == new_product_id, Product.is_active == True)
+        ).scalar_one_or_none()
+
+        if not new_product:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Selected replacement product not found or is inactive",
+            )
+
+        old_sku = target_line.sku_snapshot
+        old_name = target_line.name_snapshot
+
+        # Fetch active scheme for new product
+        new_scheme = db.execute(
+            select(Scheme).where(
+                Scheme.product_id == new_product.id,
+                Scheme.is_active == True,
+            )
+        ).scalars().first()
+
+        new_case_price = (new_product.dealer_price_per_pack * new_product.case_qty).quantize(
+            TWO_PLACES, rounding=ROUND_HALF_UP
+        )
+
+        calc_result = calculate_line_scheme(
+            case_price=new_case_price,
+            paid_qty=target_line.qty_cases,
+            scheme=new_scheme,
+        )
+
+        # Update line snapshots and values
+        target_line.product_id = new_product.id
+        target_line.sku_snapshot = new_product.sku
+        target_line.name_snapshot = new_product.name
+        target_line.pack_size_snapshot = new_product.pack_size or ""
+        target_line.case_qty_snapshot = new_product.case_qty
+        target_line.price_per_pack_snapshot = new_product.dealer_price_per_pack
+        target_line.price_per_case_snapshot = new_case_price
+
+        target_line.scheme_type_snapshot = new_scheme.scheme_type if new_scheme else None
+        target_line.min_qty_snapshot = new_scheme.min_qty if new_scheme else None
+        target_line.free_qty_snapshot = new_scheme.free_qty if new_scheme else None
+        target_line.discount_pct_snapshot = new_scheme.discount_pct if new_scheme else None
+        target_line.description_snapshot = new_scheme.description if new_scheme else None
+
+        target_line.free_cases = calc_result.free_qty_cases
+        target_line.fulfilment_qty_cases = calc_result.fulfilment_qty_cases
+        target_line.unit_price = new_case_price
+        target_line.gross_amount = calc_result.gross_amount
+        target_line.discount_amount = calc_result.discount_amount
+        target_line.benefit_value = calc_result.benefit_value
+        target_line.net_amount = calc_result.net_payable
+
+        # Recalculate order totals
+        total_gross = sum(l.gross_amount for l in order.lines)
+        total_discount = sum(l.discount_amount for l in order.lines)
+        total_benefit = sum(l.benefit_value for l in order.lines)
+        total_net = sum(l.net_amount for l in order.lines)
+
+        order.gross_total = total_gross
+        order.discount_total = total_discount
+        order.benefit_total = total_benefit
+        order.scheme_total = total_benefit
+        order.net_total = total_net
+        order.total_cases = sum(l.qty_cases for l in order.lines)
+        order.total_free_cases = sum(l.free_cases for l in order.lines)
+        order.total_fulfilment_cases = sum(l.fulfilment_qty_cases for l in order.lines)
+        order.reviewed_by = desk_user_id
+
+        # Controlled Desk Learning: Save retailer alias from raw_fragment
+        if target_line.raw_fragment:
+            clean_term = normalize_text(target_line.raw_fragment)
+            if clean_term:
+                existing_alias = db.execute(
+                    select(RetailerAlias).where(
+                        RetailerAlias.retailer_id == order.retailer_id,
+                        RetailerAlias.raw_term == clean_term,
+                    )
+                ).scalar_one_or_none()
+
+                if existing_alias:
+                    existing_alias.product_id = new_product.id
+                    existing_alias.source = "desk"
+                else:
+                    new_alias = RetailerAlias(
+                        retailer_id=order.retailer_id,
+                        product_id=new_product.id,
+                        raw_term=clean_term,
+                        source="desk",
+                    )
+                    db.add(new_alias)
+
+        # Audit log entry
+        audit_entry = OrderAuditLog(
+            order_id=order.id,
+            actor_type="order_desk",
+            actor_id=desk_user_id,
+            action="PRODUCT_CORRECTED",
+            from_status="SUBMITTED",
+            to_status="SUBMITTED",
+            note=reason,
+            details={
+                "line_id": str(line_id),
+                "old_sku": old_sku,
+                "old_name": old_name,
+                "new_sku": new_product.sku,
+                "new_name": new_product.name,
                 "reason": reason,
             },
         )

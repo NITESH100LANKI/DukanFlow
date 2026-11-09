@@ -60,14 +60,24 @@ export const RetailerDashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-2">AI Voice / Text Capture</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Dictate or paste orders in Hindi, English or Hinglish for smart draft creation.
-          </p>
-          <span className="inline-block text-xs font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded-md">
-            Phase 8 / AI Capture — Scheduled
-          </span>
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-2">
+              <h2 className="text-lg font-bold text-gray-900">AI Order Capture (स्मार्ट ऑर्डर)</h2>
+              <span className="inline-block text-[11px] font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">
+                Phase 7 Active
+              </span>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Paste or type wholesale orders in Hindi, English, or Hinglish. Gemini extracts an editable draft for your confirmation.
+            </p>
+          </div>
+          <Link
+            to="/retailer/ai-capture"
+            className="w-full py-2.5 px-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-colors text-center shadow-xs"
+          >
+            Start AI Order (स्मार्ट ऑर्डर बनाएं) &rarr;
+          </Link>
         </div>
       </div>
     </div>

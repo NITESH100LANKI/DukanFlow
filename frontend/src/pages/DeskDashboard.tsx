@@ -41,14 +41,19 @@ export const DeskDashboard: React.FC = () => {
           </Link>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-2">Tally CSV Export</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Generate and download Tally XML/CSV exports for approved orders.
-          </p>
-          <span className="inline-block text-xs font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded-md">
-            ERP Integration
-          </span>
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Accounting & Tally Export</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Export approved orders into standardized accounting CSV formats for billing and ledger entry.
+            </p>
+          </div>
+          <Link
+            to="/desk/exports"
+            className="inline-block py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors text-center shadow-sm"
+          >
+            Open Accounting Export &rarr;
+          </Link>
         </div>
       </div>
     </div>

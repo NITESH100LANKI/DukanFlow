@@ -44,8 +44,9 @@ class Settings(BaseSettings):
 
     # AI
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-flash"
-    AI_TIMEOUT_SECONDS: int = 10
+    GEMINI_MODEL: str = "gemini-3.8-flash"
+    GEMINI_USE_INTERACTIONS_API: bool = False
+    AI_TIMEOUT_SECONDS: int = 15
 
     # Demo mode — OTP
     DEMO_MODE: bool = True              # If True, OTP is always "123456"

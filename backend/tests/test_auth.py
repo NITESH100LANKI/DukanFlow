@@ -274,6 +274,7 @@ def test_refresh_token_rotation_and_revocation(
     assert rotated_cookie != initial_cookie
 
     # Replay attack: try using the old initial cookie again -> 401 Blocklisted
+    client.cookies.clear()
     client.cookies.set("refresh_token", initial_cookie)
     replay_res = client.post("/api/v1/auth/refresh")
     assert replay_res.status_code == 401

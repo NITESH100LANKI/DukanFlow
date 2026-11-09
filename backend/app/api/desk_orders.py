@@ -22,6 +22,7 @@ from app.schemas.order import (
     DeskOrderRejectRequest,
     DeskOrderApproveRequest,
 )
+from app.schemas.ai import DeskCorrectProductRequest
 
 router = APIRouter(prefix="/desk/orders", tags=["desk-orders"])
 
@@ -97,7 +98,6 @@ def correct_order_line(
         desk_user_id=desk_user_id,
     )
 
-
 @router.post(
     "/{order_id}/approve",
     response_model=OrderRead,
@@ -149,6 +149,35 @@ def reject_order(
     return OrderService.reject_order(
         db=db,
         order_id=order_id,
+        reason=request.reason,
+        desk_user_id=desk_user_id,
+    )
+
+@router.post(
+    "/{order_id}/lines/{line_id}/correct-product",
+    response_model=OrderRead,
+    summary="Order Desk product correction establishing a learned retailer alias",
+)
+def correct_order_line_product(
+    order_id: uuid.UUID,
+    line_id: uuid.UUID,
+    request: DeskCorrectProductRequest,
+    current_user: dict = Depends(require_role(["order_desk"])),
+    db: Session = Depends(get_db),
+):
+    """
+    Corrects product assignment on an order line:
+    - Order must be in SUBMITTED status.
+    - Recalculates scheme bonus and financial totals using new product and active scheme.
+    - Saves learned retailer alias: raw_fragment -> product_id with source='desk'.
+    - Records immutable audit log.
+    """
+    desk_user_id = uuid.UUID(current_user["id"])
+    return OrderService.correct_line_product(
+        db=db,
+        order_id=order_id,
+        line_id=line_id,
+        new_product_id=request.product_id,
         reason=request.reason,
         desk_user_id=desk_user_id,
     )

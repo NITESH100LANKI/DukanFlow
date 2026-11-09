@@ -21,6 +21,15 @@ from app.models.order import (
     OrderLine,
     OrderAuditLog,
 )
+from app.models.ai import (
+    RetailerAlias,
+    AIOrderDraft,
+    AIOrderDraftLine,
+)
+from app.models.export import (
+    ExportBatch,
+    ExportBatchLine,
+)
 
 __all__ = [
     "Retailer",
@@ -34,4 +43,9 @@ __all__ = [
     "Order",
     "OrderLine",
     "OrderAuditLog",
+    "RetailerAlias",
+    "AIOrderDraft",
+    "AIOrderDraftLine",
+    "ExportBatch",
+    "ExportBatchLine",
 ]

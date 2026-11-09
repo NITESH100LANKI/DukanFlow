@@ -149,6 +149,7 @@ class CartService:
         retailer_id: uuid.UUID,
         product_id: uuid.UUID,
         qty_cases: int,
+        auto_commit: bool = True,
     ) -> Dict[str, Any]:
         """
         Adds or updates a product line in the retailer's cart.
@@ -216,8 +217,10 @@ class CartService:
             )
             db.add(line)
 
-        db.commit()
-        return cls.get_cart_data(db, retailer_id)
+        if auto_commit:
+            db.commit()
+            return cls.get_cart_data(db, retailer_id)
+        return {"id": line.id}
 
     @classmethod
     def update_line_qty(
