@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export const RetailerDashboard: React.FC = () => {
@@ -25,14 +26,24 @@ export const RetailerDashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-2">Catalogue & Ordering</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Browse FMCG products, active schemes (Buy N Get M Free), and place orders.
-          </p>
-          <span className="inline-block text-xs font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded-md">
-            Phase 4 / Catalogue — Up Next
-          </span>
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-2">
+              <h2 className="text-lg font-bold text-gray-900">Catalogue & Ordering</h2>
+              <span className="inline-block text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                Phase 4 Ready
+              </span>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Browse wholesale FMCG products, active schemes (Buy 10 Get 1 Free, 3% discount), and case pricing.
+            </p>
+          </div>
+          <Link
+            to="/retailer/catalogue"
+            className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-bold transition-colors shadow-xs"
+          >
+            Open Catalogue (कैटलॉग खोलें) &rarr;
+          </Link>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">

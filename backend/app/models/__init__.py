@@ -8,11 +8,16 @@ from app.models.auth import (
     OTPRecord,
     RefreshTokenBlocklist,
 )
+from app.models.catalogue import (
+    Product,
+    Scheme,
+)
 
 __all__ = [
     "Retailer",
     "OrderDeskUser",
     "OTPRecord",
     "RefreshTokenBlocklist",
+    "Product",
+    "Scheme",
 ]
-

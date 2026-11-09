@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.health import router as health_router
 from app.api.auth import router as auth_router
+from app.api.catalogue import router as catalogue_router
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -31,4 +32,5 @@ app.add_middleware(
 # Routers
 app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
+app.include_router(catalogue_router, prefix=settings.API_V1_PREFIX)
 

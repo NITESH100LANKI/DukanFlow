@@ -13,6 +13,11 @@ from app.schemas.auth import (
     LogoutResponse,
     CurrentUserResponse,
 )
+from app.schemas.catalogue import (
+    SchemeRead,
+    ProductRead,
+    ProductListResponse,
+)
 
 __all__ = [
     "RequestOTPRequest",
@@ -24,5 +29,8 @@ __all__ = [
     "DeskLoginRequest",
     "LogoutResponse",
     "CurrentUserResponse",
+    "SchemeRead",
+    "ProductRead",
+    "ProductListResponse",
 ]
 

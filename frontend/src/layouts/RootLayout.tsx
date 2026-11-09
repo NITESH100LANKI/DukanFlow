@@ -50,6 +50,12 @@ export const RootLayout: React.FC = () => {
               {isAuthenticated && user ? (
                 <div className="flex items-center space-x-3">
                   <Link
+                    to="/retailer/catalogue"
+                    className="text-xs font-bold text-primary-700 bg-primary-50 px-2.5 py-1 rounded-lg hover:bg-primary-100 transition-colors"
+                  >
+                    {language === 'hi' ? 'कैटलॉग' : 'Catalogue'}
+                  </Link>
+                  <Link
                     to={dashboardPath}
                     className="text-xs font-bold text-gray-700 hover:text-primary-600"
                   >

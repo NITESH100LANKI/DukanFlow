@@ -6,6 +6,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import RetailerDashboard from './pages/RetailerDashboard';
 import DeskDashboard from './pages/DeskDashboard';
+import ProductCataloguePage from './pages/ProductCataloguePage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -22,6 +23,22 @@ export const App: React.FC = () => {
               element={
                 <ProtectedRoute allowedRoles={['retailer']}>
                   <RetailerDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="retailer/catalogue"
+              element={
+                <ProtectedRoute allowedRoles={['retailer', 'order_desk']}>
+                  <ProductCataloguePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="catalogue"
+              element={
+                <ProtectedRoute allowedRoles={['retailer', 'order_desk']}>
+                  <ProductCataloguePage />
                 </ProtectedRoute>
               }
             />
