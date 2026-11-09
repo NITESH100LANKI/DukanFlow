@@ -1,7 +1,7 @@
 # DukaanFlow (दुकानफ्लो)
 
 **FMCG Distributor Retailer Ordering Platform**  
-Designed for 1,800+ kirana shops in Jabalpur, digitizing WhatsApp-based ordering with AI draft extraction, dealer pricing, scheme engines, and Tally-compatible order desk workflows.
+Designed for 1,800+ kirana shops in Jabalpur, offering text-based AI draft order extraction (Hindi, Hinglish, English), dealer pricing, scheme engines, and Generic Accounting CSV Export — Tally integration pending client specification.
 
 ---
 

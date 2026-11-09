@@ -34,6 +34,14 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "postgresql://dukaanflow:dukaanflow@localhost:5432/dukaanflow"
+    # Connection Pool Budget:
+    # Total connections = (instances) * (workers) * (DB_POOL_SIZE + DB_MAX_OVERFLOW)
+    # Render Managed PostgreSQL Starter provides 97 available connections.
+    # 1 instance * 2 workers * (5 + 5) = 20 connections max, leaving 77 headroom for CLI/migrations/probes.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800
 
     # JWT
     JWT_SECRET_KEY: str = "CHANGE_ME_IN_PRODUCTION"
@@ -47,32 +55,47 @@ class Settings(BaseSettings):
     COOKIE_DOMAIN: Optional[str] = None # None = current host; or ".dukaanflow.in" for subdomains
 
     # CORS
+    # Explicit production-origin allowlist and strictly anchored preview regex
     CORS_ORIGINS: List[str] = [
         "http://localhost:5173",
         "http://localhost:3000",
     ]
-    CORS_ORIGIN_REGEX: Optional[str] = r"^https://.*dukaanflow.*\.vercel\.app$"
+    # Anchored strictly to dukaanflow subdomains on vercel.app (e.g. dukaanflow-preview-123.vercel.app)
+    # Rejects arbitrary attacker domains (e.g. evil-dukaanflow.vercel.app or dukaanflow.attacker.com)
+    CORS_ORIGIN_REGEX: Optional[str] = r"^https:\/\/dukaanflow(-[a-zA-Z0-9_-]+)?\.vercel\.app$"
 
-    # AI (Gemini)
+    # AI (Gemini — Text-based order extraction: Hindi, Hinglish, English)
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.8-flash"
     GEMINI_USE_INTERACTIONS_API: bool = False
     AI_TIMEOUT_SECONDS: int = 15
 
     # Retailer OTP & SMS Gateway
-    DEMO_MODE: bool = True              # If True, OTP is always "123456" (dev only)
+    DEMO_MODE: bool = True              # If True, OTP is fixed "123456" (DEV ONLY; FORBIDDEN IN PROD)
     DEMO_OTP: str = "123456"
-    SMS_PROVIDER_CONFIGURED: bool = False  # Production blocker: True only when SMS gateway is integrated
+    SMS_PROVIDER_CONFIGURED: bool = False  # Informational flag: SMS provider integration is pending
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Any) -> List[str]:
+        origins: List[str] = []
         if isinstance(v, str):
             if v.startswith("["):
-                return json.loads(v)
-            return [i.strip() for i in v.split(",") if i.strip()]
+                origins = json.loads(v)
+            else:
+                origins = [i.strip() for i in v.split(",") if i.strip()]
         elif isinstance(v, list):
-            return v
+            origins = v
+        else:
+            origins = ["http://localhost:5173", "http://localhost:3000"]
+
+        # Security requirement: Wildcard '*' cannot be combined with credentials (cookies)
+        if "*" in origins:
+            raise ValueError(
+                "CORS wildcard '*' is strictly forbidden when credentials (cookies) are enabled. "
+                "Specify explicit allowed origins."
+            )
+        return origins
         return ["http://localhost:5173", "http://localhost:3000"]
 
     @field_validator("COOKIE_SECURE", mode="before")

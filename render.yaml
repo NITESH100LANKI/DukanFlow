@@ -35,13 +35,17 @@ services:
       - key: CORS_ORIGINS
         value: "https://dukaanflow.vercel.app"
       - key: CORS_ORIGIN_REGEX
-        value: "^https://.*dukaanflow.*\\.vercel\\.app$"
+        value: "^https:\\/\\/dukaanflow(-[a-zA-Z0-9_-]+)?\\.vercel\\.app$"
+      - key: DB_POOL_SIZE
+        value: "5"
+      - key: DB_MAX_OVERFLOW
+        value: "5"
       - key: DEMO_MODE
         value: "false"
       - key: SMS_PROVIDER_CONFIGURED
-        value: "false"
+        value: "false"  # Informational: Retailer login disabled until real SMS provider is integrated
       - key: GEMINI_API_KEY
-        sync: false  # Must be set manually in Render Dashboard secrets
+        sync: false  # Must be set manually in Render Dashboard secrets (Text-only Hindi/Hinglish/English)
       - key: GEMINI_MODEL
         value: "gemini-3.8-flash"
       - key: LOG_LEVEL

@@ -1,8 +1,8 @@
 # DukaanFlow — Production Deployment & Release Readiness Runbook
 
-> **Document Version:** 1.0.0
+> **Document Version:** 1.1.0
 >
-> **Status:** Release-Ready Architecture Specification & Operations Manual
+> **Status:** Deployment Preparation & Readiness Specification (Not deployed to live cloud infrastructure)
 >
 > **Target Release:** DukaanFlow v0.2.0
 >
@@ -10,7 +10,7 @@
 >
 > **Latest Migration Head:** `a831e5f88421` (`create_export_batches_and_lines`)
 >
-> **Mandatory Deployment Boundary:** This runbook provides exact, deterministic deployment specifications. All automated tooling operates strictly under read/staging verification. Provisioning paid cloud infrastructure, purchasing domain names, binding production ports, or pushing live deployments requires explicit, manual human confirmation.
+> **Mandatory Deployment Boundary:** This runbook provides exact, deterministic deployment specifications. All automated tooling operates strictly under local/staging verification. No live cloud resources (Vercel, Render Web Service, Render PostgreSQL) have been provisioned, no domains have been purchased or bound, no SMS provider has been contracted, and no live deployment has been executed. Actual cloud rollout requires explicit, manual human confirmation.
 
 ---
 
@@ -24,7 +24,7 @@ DukaanFlow is engineered as a modern, decoupled cloud application with high avai
                               │   Retailers (Mobile) & Order Desk (Web) │
                               └────────────────────┬────────────────────┘
                                                    │
-                                         HTTPS / WSS Requests
+                                         HTTPS Requests
                                                    │
                                                    ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
@@ -56,12 +56,16 @@ DukaanFlow is engineered as a modern, decoupled cloud application with high avai
 │ PERSISTENCE TIER                      │  │ EXTERNAL AI SERVICES                        │
 │ (Render Managed PostgreSQL 16)        │  │ (Google Gemini 3.8 Flash)                   │
 │                                       │  │                                             │
-│  - Transactional ACID storage         │  │  - Multimodal handwritten order extraction  │
+│  - Transactional ACID storage         │  │  - Text order extraction (Hindi/Hinglish/En)│
 │  - Row-level pessimistic locking      │  │  - Structured Pydantic schema validation    │
 │  - SSL Mode: sslmode=require          │  │  - 15s timeout with deterministic fallback  │
-│  - Zero Seed Policy in Production     │  │  - Zero server secrets exposed to frontend  │
+│  - Zero Seed Policy in Production     │  │  - No handwriting OCR, voice, or WhatsApp   │
+│  - Connection budget: 20/97 limit     │  │  - Zero server secrets exposed to frontend  │
 └───────────────────────────────────────┘  └─────────────────────────────────────────────┘
 ```
+
+> [!NOTE]
+> **AI Extraction Scope Clarification:** Phase 7 AI extraction strictly supports text-based orders submitted in Hindi, Hinglish (Roman Hindi), and English. Handwriting OCR (image scanning), voice recording (speech-to-text), and WhatsApp bot integrations have **not** been implemented.
 
 ---
 
@@ -106,7 +110,7 @@ The repository includes `frontend/vercel.json` pre-configured for both client ro
 ```
 
 > [!IMPORTANT]
-> When your Render backend URL is created, verify that the `destination` URL in `frontend/vercel.json` matches your exact Render Web Service hostname.
+> When your Render backend Web Service is created, verify that the `destination` URL in `frontend/vercel.json` matches your exact Render Web Service hostname.
 
 ---
 
@@ -137,7 +141,7 @@ Alternatively, deploy using the committed `render.yaml` blueprint:
 
 ---
 
-## 4. Managed PostgreSQL Database Setup
+## 4. Managed PostgreSQL Database Setup & Connection Budget
 
 ### 4.1 Provisioning Independent Database on Render
 1. In the Render Dashboard, click **New +** > **PostgreSQL**.
@@ -156,10 +160,27 @@ Render provides two connection strings:
 - **External Database URL**: `postgresql://dukaanflow_user:<pwd>@dpg-xxxxxx-a.oregon-postgres.render.com:5432/dukaanflow?sslmode=require`
   - Used for developer database migrations, emergency CLI access, or manual administrative queries.
 
-### 4.3 SSL and Connection Pooling
-- Render PostgreSQL requires SSL for all external connections.
-- SQLAlchemy engine configures `pool_pre_ping=True` and handles reconnection automatically.
-- Production connection URLs must include `sslmode=require`.
+### 4.3 Database Connection Budget & Scaling Limits
+
+Render Managed PostgreSQL Starter tier provides **97 user connections** (`max_connections = 100`, with 3 reserved by PostgreSQL for superuser maintenance).
+
+The total maximum connection usage is determined by:
+
+$$\text{Total Connections} = (\text{Backend Instances}) \times (\text{Workers per Instance}) \times (\text{DB\_POOL\_SIZE} + \text{DB\_MAX\_OVERFLOW})$$
+
+#### Initial Production Deployment Sizing:
+- **Backend Instances:** 1
+- **Uvicorn Workers:** 2
+- **`DB_POOL_SIZE`:** 5 (configurable via environment variable)
+- **`DB_MAX_OVERFLOW`:** 5 (configurable via environment variable)
+
+$$\text{Max Application Connections} = 1 \times 2 \times (5 + 5) = 20 \text{ connections}$$
+
+#### Connection Headroom Analysis:
+- Total PostgreSQL limit: **97 connections**
+- Application max pool allocation: **20 connections** (20.6% of budget)
+- Available headroom: **77 connections** (79.4% reserved for Alembic pre-deploy migrations, administrative CLI sessions via `psql`, `/health` readiness probes, and database monitoring).
+- Even if horizontally scaled to 2 backend instances (4 workers total), total connections would equal $4 \times 10 = 40$, leaving 57 connections of safe headroom.
 
 ### 4.4 Zero Seed Data Policy
 > [!CAUTION]
@@ -178,6 +199,10 @@ Render provides two connection strings:
 | `ENVIRONMENT` | `production` | **YES** | Activates production security guards, cookie flags, and strict error handlers. |
 | `DEBUG` | `false` | **YES** | Disables detailed stack traces and debugging endpoints. |
 | `DATABASE_URL` | `postgresql+psycopg2://...` | **YES** | Internal connection string injected automatically by Render. |
+| `DB_POOL_SIZE` | `5` | NO | SQLAlchemy base pool size per worker (default 5). |
+| `DB_MAX_OVERFLOW` | `5` | NO | SQLAlchemy maximum temporary overflow connections (default 5). |
+| `DB_POOL_TIMEOUT` | `30` | NO | Seconds to wait before timing out on pool exhaustion (default 30). |
+| `DB_POOL_RECYCLE` | `1800` | NO | Seconds after which connections are recycled (default 1800 / 30 min). |
 | `JWT_SECRET_KEY` | `64+ char base64 string` | **YES** | Secret key used to sign and verify HMAC-SHA256 JWT tokens. |
 | `JWT_ALGORITHM` | `HS256` | **YES** | Cryptographic algorithm for JWTs. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | **YES** | Short-lived retailer and desk access token lifetime. |
@@ -185,14 +210,14 @@ Render provides two connection strings:
 | `COOKIE_SECURE` | `true` | **YES** | Enforces `Secure` flag on refresh cookies (browsers send only over HTTPS). |
 | `COOKIE_SAMESITE` | `lax` | **YES** | `lax` for Solution A (same-origin proxy); `none` for cross-site subdomains. |
 | `COOKIE_DOMAIN` | Empty string / `null` | NO | Leave blank for proxy; set to `.dukaanflow.in` if using custom shared apex. |
-| `CORS_ORIGINS` | `https://dukaanflow.vercel.app` | **YES** | Comma-separated list of authorized web frontend origins. |
-| `CORS_ORIGIN_REGEX` | `^https://.*dukaanflow.*\.vercel\.app$` | NO | Authorizes dynamic Vercel preview branch deployment URLs. |
-| `GEMINI_API_KEY` | `AIzaSy...` | **YES** | Google Gemini API key for multimodal order extraction. Never expose to client! |
+| `CORS_ORIGINS` | `https://dukaanflow.vercel.app` | **YES** | Explicit allowed origins. Wildcard `*` is strictly forbidden with credentials. |
+| `CORS_ORIGIN_REGEX` | `^https:\/\/dukaanflow(-[a-zA-Z0-9_-]+)?\.vercel\.app$` | NO | Strictly anchored regex allowing only DukaanFlow preview subdomains. |
+| `GEMINI_API_KEY` | `AIzaSy...` | **YES** | Gemini key for text extraction (Hindi/Hinglish/En). Never expose to client! |
 | `GEMINI_MODEL` | `gemini-3.8-flash` | **YES** | Standard high-efficiency production model for extraction. |
 | `GEMINI_USE_INTERACTIONS_API` | `false` | **YES** | Set `true` if transitioning to direct Interactions API gateway. |
-| `AI_TIMEOUT_SECONDS` | `15` | **YES** | Upstream timeout for AI vision extraction before returning graceful degradation. |
-| `DEMO_MODE` | `false` | **YES** | **MUST BE FALSE IN PROD.** If true, backend refuses to authenticate and halts. |
-| `SMS_PROVIDER_CONFIGURED` | `false` | **YES** | Blocks unauthenticated OTP bypass until live SMS provider (e.g. Twilio) is live. |
+| `AI_TIMEOUT_SECONDS` | `15` | **YES** | Upstream timeout for AI extraction before returning graceful degradation. |
+| `DEMO_MODE` | `false` | **YES** | **MUST BE FALSE IN PROD.** If true, backend refuses startup and halts. |
+| `SMS_PROVIDER_CONFIGURED` | `false` | **YES** | Informational flag: Retailer login is disabled in prod pending SMS integration. |
 
 ### 5.2 Frontend Production Environment Variables
 
@@ -213,20 +238,21 @@ python -c "import secrets; print(secrets.token_urlsafe(64))"
 
 ## 6. CORS and Cookie Architecture
 
-Vercel frontend (`*.vercel.app`) and Render backend (`*.onrender.com`) have different public domain suffixes. Modern browsers (Chrome 80+, Safari ITP, Firefox) classify cookies exchanged across different public suffixes as third-party cookies and block them by default.
+Vercel frontend (`*.vercel.app`) and Render backend (`*.onrender.com`) have different public domain suffixes. Modern browsers classify cookies exchanged across different public suffixes as third-party cookies and block them by default.
 
-### Solution A: Same-Origin Vercel Reverse Proxy (Recommended & Configured)
+### 6.1 Solution A: Same-Origin Vercel Reverse Proxy (Recommended & Configured)
 - **Architecture**: The browser only ever talks to `https://dukaanflow.vercel.app`.
 - Requests to `/api/v1/*` are transparently proxied to `https://dukaanflow-api.onrender.com/api/v1/*` by Vercel edge routers.
 - **Cookie Mechanics**: The refresh token cookie is set for domain `dukaanflow.vercel.app` with `SameSite=Lax` and `Secure=True`. To the browser, this is a 100% first-party cookie. No cross-site tracking protections are triggered.
-- **CORS Requirements**: No complex cross-origin headers are needed between the browser and backend.
+- **CORS Requirements**: No complex cross-origin headers are needed between browser and backend.
 
-### Solution B: Custom Apex Domain with Subdomains (Alternative)
-- **Architecture**:
-  - Frontend: `https://app.dukaanflow.in`
-  - Backend: `https://api.dukaanflow.in`
-- **Cookie Mechanics**: The backend sets `COOKIE_DOMAIN=.dukaanflow.in` with `COOKIE_SAMESITE=lax` and `COOKIE_SECURE=true`. Both hostnames share the same `.dukaanflow.in` parent domain, allowing first-party cookie inheritance.
-- If completely distinct domains are used, `COOKIE_SAMESITE=none` and `COOKIE_SECURE=true` must be set, and `CORS_ORIGINS` must explicitly match the frontend URL with `Access-Control-Allow-Credentials: true`.
+### 6.2 Restricted CORS Allowlist & Preview Regex
+For direct cross-origin API calls (e.g., local development or preview environments):
+1. **Explicit Production Origin:** `CORS_ORIGINS` explicitly whitelists `https://dukaanflow.vercel.app`.
+2. **Strictly Anchored Preview Regex:** `CORS_ORIGIN_REGEX=^https:\/\/dukaanflow(-[a-zA-Z0-9_-]+)?\.vercel\.app$`
+   - Matches only subdomains belonging to the DukaanFlow Vercel deployment (e.g., `https://dukaanflow-git-feat-xyz.vercel.app`).
+   - Strictly rejects third-party attacker domains (e.g., `https://evil-dukaanflow.vercel.app` or `https://dukaanflow.phish.com`).
+3. **No Wildcard Credentials:** Pydantic validators strictly prohibit combining wildcard `*` with `allow_credentials=True`.
 
 ---
 
@@ -308,20 +334,15 @@ npm run build
 
 ## 10. Staging / Preview Deployment Strategy
 
-### 10.1 Vercel Preview Deployments
 - Every GitHub pull request automatically triggers an isolated Vercel preview deployment (e.g., `https://dukaanflow-git-feat-xyz-team.vercel.app`).
-- The backend CORS middleware includes `CORS_ORIGIN_REGEX=^https://.*dukaanflow.*\.vercel\.app$`.
+- The backend CORS middleware includes strictly anchored `CORS_ORIGIN_REGEX=^https:\/\/dukaanflow(-[a-zA-Z0-9_-]+)?\.vercel\.app$`.
 - Preview deployments can securely test API interactions against staging environments without CORS rejections.
-
-### 10.2 Render Staging Services
-- Create a secondary Render Web Service `dukaanflow-api-staging` tracking the `develop` or `staging` branch.
-- Connect to an independent staging PostgreSQL database (`dukaanflow-postgres-staging`) to test migrations and load scenarios safely.
 
 ---
 
 ## 11. Production Go-Live Procedure (Step-by-Step)
 
-Follow this chronological checklist for the initial go-live release:
+Follow this chronological checklist when human authorization is granted to execute the live rollout:
 
 - [ ] **Step 1: Code Freeze & Git Tagging**
   Confirm all tests pass and tag the accepted release commit:
@@ -343,8 +364,8 @@ Follow this chronological checklist for the initial go-live release:
   1. Open frontend root: verify redirects to `/login`.
   2. Log in as Order Desk operator: verify JWT access token issued and refresh cookie set.
   3. Navigate to Order Desk: `/desk/dashboard`, `/desk/orders`, `/desk/exports`.
-  4. Perform test AI order extraction on staging catalog image.
-  5. Verify export generation produces valid Tally CSV.
+  4. Perform test AI order extraction on typed/pasted Hindi or English text.
+  5. Verify export generation produces valid Generic Accounting CSV (Tally integration pending client specification).
 - [ ] **Step 8: Enable External Uptime Monitoring**
   Configure [BetterStack](https://betterstack.com) or [UptimeRobot](https://uptimerobot.com) to ping `https://dukaanflow-api.onrender.com/health` every 60 seconds.
 
@@ -388,7 +409,7 @@ pg_restore -v --clean --no-acl --no-owner \
 ### 13.3 Database Connection Pool Exhaustion
 - **Symptom**: Backend logs show `psycopg2.OperationalError: FATAL: remaining connection slots are reserved for non-replication superuser connections`.
 - **Root Cause**: High concurrency exceeding PostgreSQL Starter tier limit (97 connections).
-- **Solution**: Configure SQLAlchemy connection pool limits in `backend/app/db/session.py` (`pool_size=10`, `max_overflow=5`), or deploy PgBouncer connection pooling.
+- **Solution**: DukaanFlow limits connection usage to 20 connections per instance (`DB_POOL_SIZE=5`, `DB_MAX_OVERFLOW=5`), leaving 77 headroom. If horizontal replicas exceed 4 instances, deploy PgBouncer connection pooling.
 
 ### 13.4 Gemini AI Rate Limits or Upstream Outages
 - **Symptom**: Order extraction returns HTTP 500 or hangs.
@@ -430,14 +451,16 @@ alembic downgrade 4e7f793b510a
 The following items must be resolved before conducting commercial transactions:
 
 1. **SMS Gateway Integration for Retailer OTP**:
-   - `DEMO_MODE=true` is strictly prohibited in production.
-   - Real SMS provider (Fast2SMS, Twilio, or Gupshup) credentials must be configured to deliver one-time passcodes to retailer mobile devices.
-   - `SMS_PROVIDER_CONFIGURED` must be set to `true` once live.
+   - `DEMO_MODE=true` is strictly prohibited in production (`AuthService.request_otp` rejects with HTTP 500; startup halts with `RuntimeError`).
+   - Retailer OTP login is strictly disabled in production pending real SMS provider integration.
+   - A commercial SMS provider (Fast2SMS, Twilio, or Gupshup) must be implemented, tested, and configured before retailer OTP can function.
+   - Setting a configuration flag alone cannot bypass the absence of an SMS provider.
 2. **Client Tally Accounting Schema Confirmation**:
-   - dukaanflow exports canonical Tally-compliant CSV files with complete order, line, financial, and batch metadata.
-   - The distributor's specific Tally XML / custom TDL column mappings must be verified against their local Tally Prime installation.
+   - **Generic Accounting CSV Export — Tally integration pending client specification.**
+   - DukaanFlow exports generic accounting CSV files with complete order, line, financial snapshot, and export batch metadata.
+   - The distributor's specific Tally Prime XML import or custom TDL column mappings must be verified against their local Tally Prime installation before claiming verified Tally integration.
 3. **GST Legal & Tax Architectural Decision**:
-   - dukaanflow currently operates in FMCG wholesale catalog price mode (all product rates and discounts are gross trade prices).
+   - DukaanFlow currently operates in FMCG wholesale catalog price mode (all product rates and discounts are gross trade prices).
    - If GST tax invoices (CGST + SGST or IGST) must be calculated on-platform, the tax breakdown module must be formally scheduled.
 
 ---
@@ -445,8 +468,8 @@ The following items must be resolved before conducting commercial transactions:
 ## 16. Performance & Operational Limits
 
 - **CSV Export Batch Size**: Hard limit of **500 orders per export batch**. Prevents Uvicorn worker memory spikes and keeps export generation under 3.5 seconds.
-- **Database Connection Pooling**: Default `pool_size=10`, `max_overflow=10` per Uvicorn instance.
-- **AI Extraction Latency**: Typical response 2.8s – 6.2s. Enforced client timeout of 15 seconds.
+- **Database Connection Pooling**: Default `DB_POOL_SIZE=5`, `DB_MAX_OVERFLOW=5` (20 connections max for 2 workers), leaving 77 connection headroom on PostgreSQL Starter tier (97 user connections limit).
+- **AI Extraction Latency**: Typical response 2.8s – 6.2s for typed/pasted text. Enforced client timeout of 15 seconds.
 
 ---
 
@@ -454,6 +477,6 @@ The following items must be resolved before conducting commercial transactions:
 
 **Notice to Operators and Engineers:**
 
-All preparatory infrastructure manifests (`render.yaml`, `backend/Dockerfile`, `frontend/vercel.json`, `requirements.txt`, `.env.production.example`) have been generated and validated.
+All preparatory infrastructure manifests (`render.yaml`, `backend/Dockerfile`, `frontend/vercel.json`, `requirements.txt`, `.env.production.example`) have been generated and locally validated.
 
-No third-party cloud accounts, cloud databases, domains, or billing resources have been or will be provisioned without explicit, documented human authorization.
+The application has **NOT** been deployed to real Vercel or Render production resources. No live third-party cloud accounts, cloud databases, domains, or billing resources have been or will be provisioned without explicit, documented human authorization.

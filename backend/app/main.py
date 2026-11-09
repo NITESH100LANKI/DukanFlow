@@ -2,6 +2,7 @@
 FastAPI application factory for DukaanFlow.
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
@@ -14,11 +15,27 @@ from app.api.desk_orders import router as desk_orders_router
 from app.api.desk_exports import router as desk_exports_router
 from app.api.ai import router as ai_router
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan manager.
+    Performs critical production security validations on startup.
+    """
+    if settings.ENVIRONMENT == "production":
+        if settings.DEMO_MODE:
+            raise RuntimeError(
+                "Fatal startup error: DEMO_MODE must be False in production environment."
+            )
+    yield
+
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     docs_url="/docs" if settings.DEBUG else None,   # Disable Swagger in production
     redoc_url="/redoc" if settings.DEBUG else None,
+    lifespan=lifespan,
 )
 
 # CORS configuration supporting development, Vercel preview deploys, and custom production domains

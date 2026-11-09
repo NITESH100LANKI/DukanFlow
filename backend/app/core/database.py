@@ -12,11 +12,13 @@ if db_url.startswith("postgresql://"):
 
 engine = create_engine(
     db_url,
-    pool_pre_ping=True,     # Reconnect on stale connections
-    pool_size=5,
-    max_overflow=10,
+    pool_pre_ping=True,                 # Reconnect on stale connections
+    pool_size=settings.DB_POOL_SIZE,    # Configurable via DB_POOL_SIZE (default 5)
+    max_overflow=settings.DB_MAX_OVERFLOW, # Configurable via DB_MAX_OVERFLOW (default 5)
+    pool_timeout=settings.DB_POOL_TIMEOUT, # Configurable via DB_POOL_TIMEOUT (default 30)
+    pool_recycle=settings.DB_POOL_RECYCLE, # Configurable via DB_POOL_RECYCLE (default 1800)
     echo=settings.DEBUG,
-    connect_args={"connect_timeout": 3},
+    connect_args={"connect_timeout": 5},
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
