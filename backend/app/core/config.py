@@ -7,7 +7,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, List, Optional
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -55,11 +55,10 @@ class Settings(BaseSettings):
     COOKIE_DOMAIN: Optional[str] = None # None = current host; or ".dukaanflow.in" for subdomains
 
     # CORS
-    # Explicit allowed origins: production domain and local development ports.
-    # Because Vercel reverse-proxies /api/v1/* to Render, browser requests are same-origin.
-    # No broad preview regex is needed or enabled.
+    # In development: allows local dev servers ["http://localhost:5173", "http://localhost:3000"]
+    # In production: strictly restricted to actual production frontend ["https://dukaanflow.vercel.app"]
+    # Localhost origins and arbitrary preview regexes are forbidden in production.
     CORS_ORIGINS: List[str] = [
-        "https://dukaanflow.vercel.app",
         "http://localhost:5173",
         "http://localhost:3000",
     ]
@@ -93,7 +92,7 @@ class Settings(BaseSettings):
         elif isinstance(v, list):
             origins = v
         else:
-            origins = ["https://dukaanflow.vercel.app", "http://localhost:5173", "http://localhost:3000"]
+            origins = ["http://localhost:5173", "http://localhost:3000"]
 
         # Security requirement: Wildcard '*' cannot be combined with credentials (cookies)
         if "*" in origins:
@@ -102,6 +101,35 @@ class Settings(BaseSettings):
                 "Specify explicit allowed origins."
             )
         return origins
+
+    @model_validator(mode="after")
+    def validate_cors_environment(self) -> "Settings":
+        """
+        Enforce strict environment-specific CORS policies:
+        - In production, localhost origins are forbidden and stripped/rejected.
+        - In production, defaults strictly to the production frontend origin.
+        - In production, arbitrary preview regexes are disabled (None).
+        - In development, localhost origins are permitted for local development.
+        """
+        if self.ENVIRONMENT == "production":
+            localhost_origins = [
+                o for o in self.CORS_ORIGINS
+                if "localhost" in o or "127.0.0.1" in o
+            ]
+            if localhost_origins:
+                # If CORS_ORIGINS is the default development list, replace with canonical production origin
+                if set(self.CORS_ORIGINS) == {"http://localhost:5173", "http://localhost:3000"}:
+                    self.CORS_ORIGINS = ["https://dukaanflow.vercel.app"]
+                else:
+                    raise ValueError(
+                        f"Localhost origins {localhost_origins} are strictly forbidden in production CORS configuration."
+                    )
+            elif not self.CORS_ORIGINS:
+                self.CORS_ORIGINS = ["https://dukaanflow.vercel.app"]
+
+            # Arbitrary preview regexes must never be enabled in production
+            self.CORS_ORIGIN_REGEX = None
+        return self
 
     @field_validator("COOKIE_SECURE", mode="before")
     @classmethod

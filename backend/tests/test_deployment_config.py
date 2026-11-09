@@ -3,7 +3,8 @@ Unit and integration tests for Phase 9: Deployment Configuration, CORS Hardening
 """
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -13,7 +14,7 @@ from app.main import app, lifespan
 
 
 def test_cors_origins_validator():
-    """Verify CORS_ORIGINS validator handles strings, JSON lists, and python lists."""
+    """Verify CORS_ORIGINS validator handles strings, JSON lists, and python lists in development."""
     s1 = Settings(CORS_ORIGINS="https://dukaanflow.vercel.app, https://example.com")
     assert s1.CORS_ORIGINS == ["https://dukaanflow.vercel.app", "https://example.com"]
 
@@ -35,13 +36,45 @@ def test_cors_wildcard_forbidden_with_credentials():
     assert "CORS wildcard '*' is strictly forbidden" in str(exc_info2.value)
 
 
-def test_cors_preview_regex_disabled_by_default():
+def test_cors_environment_specific_defaults():
     """
-    Because Vercel edge reverse-proxy handles API routing same-origin,
-    CORS_ORIGIN_REGEX must be None by default to reject all arbitrary origins.
+    Verify environment-specific CORS policies:
+    - Development: defaults to localhost dev servers
+    - Production: defaults strictly to actual production frontend origin
+    - Production: disables preview regexes
     """
-    settings = Settings()
-    assert settings.CORS_ORIGIN_REGEX is None
+    # Development defaults
+    s_dev = Settings(ENVIRONMENT="development")
+    assert "http://localhost:5173" in s_dev.CORS_ORIGINS
+    assert "http://localhost:3000" in s_dev.CORS_ORIGINS
+    assert s_dev.CORS_ORIGIN_REGEX is None
+
+    # Production defaults
+    s_prod = Settings(ENVIRONMENT="production")
+    assert s_prod.CORS_ORIGINS == ["https://dukaanflow.vercel.app"]
+    assert "http://localhost:5173" not in s_prod.CORS_ORIGINS
+    assert "http://localhost:3000" not in s_prod.CORS_ORIGINS
+    assert s_prod.CORS_ORIGIN_REGEX is None
+
+
+def test_cors_production_rejects_localhost():
+    """Production configuration must reject explicit localhost origins."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            ENVIRONMENT="production",
+            CORS_ORIGINS="https://dukaanflow.vercel.app, http://localhost:5173",
+        )
+    assert "Localhost origins" in str(exc_info.value)
+    assert "strictly forbidden in production" in str(exc_info.value)
+
+
+def test_cors_production_forces_preview_regex_disabled():
+    """Production configuration must never enable arbitrary preview regexes."""
+    s = Settings(
+        ENVIRONMENT="production",
+        CORS_ORIGIN_REGEX=r"^https://.*\.vercel\.app$",
+    )
+    assert s.CORS_ORIGIN_REGEX is None
 
 
 def test_database_connection_pool_budget_and_workers():
@@ -153,33 +186,80 @@ def test_production_guard_rejects_otp_without_real_provider(monkeypatch):
         db.close()
 
 
-def test_cors_middleware_behavior_on_request():
+def test_cors_production_middleware_behavior():
     """
-    Verify CORS middleware response headers across explicit production origin,
-    unlisted preview origin (which must use same-origin proxy), and attacker origins.
+    Verify production CORS middleware accepts ONLY the actual production origin
+    and strictly rejects localhost, unlisted preview, and attacker origins.
     """
-    with TestClient(app) as client:
+    prod_settings = Settings(ENVIRONMENT="production")
+    assert prod_settings.CORS_ORIGINS == ["https://dukaanflow.vercel.app"]
+    assert prod_settings.CORS_ORIGIN_REGEX is None
+
+    test_app = FastAPI()
+    test_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=prod_settings.CORS_ORIGINS,
+        allow_origin_regex=prod_settings.CORS_ORIGIN_REGEX,
+        allow_credentials=True,
+    )
+
+    @test_app.get("/health")
+    def health():
+        return {"status": "ok"}
+
+    with TestClient(test_app) as client:
         # 1. Allowed Production Origin
         res_prod = client.get("/health", headers={"Origin": "https://dukaanflow.vercel.app"})
         assert res_prod.status_code == 200
         assert res_prod.headers.get("access-control-allow-origin") == "https://dukaanflow.vercel.app"
         assert res_prod.headers.get("access-control-allow-credentials") == "true"
 
-        # 2. Unlisted Preview Origin (rejected from direct CORS — must use same-origin Vercel proxy)
+        # 2. Localhost Origin in Production (MUST BE REJECTED)
+        res_local = client.get("/health", headers={"Origin": "http://localhost:5173"})
+        assert res_local.status_code == 200
+        assert "access-control-allow-origin" not in res_local.headers
+
+        # 3. Unlisted Preview Origin (MUST BE REJECTED — must use same-origin proxy)
         res_preview = client.get(
             "/health", headers={"Origin": "https://dukaanflow-git-feat-xyz.vercel.app"}
         )
         assert res_preview.status_code == 200
         assert "access-control-allow-origin" not in res_preview.headers
 
-        # 3. Disallowed Attacker Origin (must NOT receive CORS headers)
+        # 4. Attacker Origin (MUST BE REJECTED)
         res_attacker = client.get(
             "/health", headers={"Origin": "https://evil-dukaanflow.vercel.app"}
         )
         assert res_attacker.status_code == 200
         assert "access-control-allow-origin" not in res_attacker.headers
 
-        # 4. Completely Unrelated Origin (must NOT receive CORS headers)
-        res_unrelated = client.get("/health", headers={"Origin": "https://attacker.com"})
-        assert res_unrelated.status_code == 200
-        assert "access-control-allow-origin" not in res_unrelated.headers
+
+def test_cors_development_middleware_behavior():
+    """
+    Verify development CORS middleware allows local development ports
+    while rejecting arbitrary third-party origins.
+    """
+    dev_settings = Settings(ENVIRONMENT="development")
+    test_app = FastAPI()
+    test_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=dev_settings.CORS_ORIGINS,
+        allow_origin_regex=dev_settings.CORS_ORIGIN_REGEX,
+        allow_credentials=True,
+    )
+
+    @test_app.get("/health")
+    def health():
+        return {"status": "ok"}
+
+    with TestClient(test_app) as client:
+        # Localhost Vite dev server (ALLOWED IN DEVELOPMENT)
+        res_local = client.get("/health", headers={"Origin": "http://localhost:5173"})
+        assert res_local.status_code == 200
+        assert res_local.headers.get("access-control-allow-origin") == "http://localhost:5173"
+        assert res_local.headers.get("access-control-allow-credentials") == "true"
+
+        # Arbitrary origin (REJECTED IN DEVELOPMENT)
+        res_evil = client.get("/health", headers={"Origin": "https://malicious-site.com"})
+        assert res_evil.status_code == 200
+        assert "access-control-allow-origin" not in res_evil.headers
