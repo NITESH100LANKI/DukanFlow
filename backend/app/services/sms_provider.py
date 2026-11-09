@@ -43,6 +43,24 @@ class SMSDeliveryError(SMSProviderError):
     pass
 
 
+def sanitize_failure_reason(raw_reason: Optional[str]) -> str:
+    """
+    Sanitizes raw error strings or exceptions to ensure no plain OTP values,
+    full mobile numbers, or API keys are ever stored or returned.
+    """
+    if not raw_reason:
+        return "Unknown SMS delivery failure"
+    text = str(raw_reason).strip()
+    # Mask full 10-12 digit phone numbers
+    text = re.sub(r"\b\d{10,12}\b", "[PHONE_REDACTED]", text)
+    # Mask 6-digit plain OTPs
+    text = re.sub(r"\b\d{6}\b", "[OTP_REDACTED]", text)
+    # Mask potential API keys or token strings (>20 continuous alnum chars)
+    text = re.sub(r"\b[A-Za-z0-9_-]{20,}\b", "[SECRET_REDACTED]", text)
+    # Enforce safe length limit
+    return text[:255]
+
+
 class Fast2SMSProvider:
     """
     Asynchronous client for Fast2SMS Smart OTP delivery.
@@ -118,6 +136,7 @@ class Fast2SMSProvider:
             "otp": otp,
             "otp_expiry": 10,
             "otp_length": len(otp),
+            "variables_values": otp,
         }
 
         try:
@@ -141,8 +160,17 @@ class Fast2SMSProvider:
             raise SMSProviderConfigurationError("Fast2SMS authentication failed. Invalid API key.")
 
         if response.status_code >= 400:
-            logger.error("Fast2SMS gateway returned HTTP error %s", response.status_code)
-            raise SMSDeliveryError(f"Fast2SMS gateway returned HTTP {response.status_code}")
+            error_detail = ""
+            try:
+                err_data = response.json()
+                error_detail = err_data.get("message") or err_data.get("error") or ""
+                if isinstance(error_detail, list):
+                    error_detail = ", ".join(str(m) for m in error_detail)
+            except Exception:
+                error_detail = response.text[:100] if response.text else ""
+            sanitized_err = sanitize_failure_reason(error_detail)
+            logger.error("Fast2SMS gateway returned HTTP error %s: %s", response.status_code, sanitized_err)
+            raise SMSDeliveryError(f"Fast2SMS gateway returned HTTP {response.status_code}: {sanitized_err}")
 
         # Parse JSON response
         try:
@@ -152,17 +180,33 @@ class Fast2SMSProvider:
             raise SMSDeliveryError("Malformed response received from Fast2SMS.") from exc
 
         # Fast2SMS Smart OTP protocol returns {"return": true/false, ...}
+        # Validate both HTTP 200 AND internal return status
         is_successful = data.get("return") is True
         if not is_successful:
             error_message = data.get("message") or "Unknown delivery error"
-            logger.error("Fast2SMS delivery rejected: status_code=%s, message=%s", data.get("status_code"), error_message)
+            if isinstance(error_message, list):
+                error_message = ", ".join(str(m) for m in error_message)
+            logger.error(
+                "Fast2SMS delivery rejected: status_code=%s, message=%s",
+                data.get("status_code"),
+                error_message,
+            )
             raise SMSDeliveryError(f"Fast2SMS delivery error: {error_message}")
 
-        request_id = data.get("request_id", "")
-        logger.info("Fast2SMS OTP successfully dispatched for %s (request_id=%s)", masked_mobile, request_id)
+        request_id = data.get("request_id")
+        if not request_id or not str(request_id).strip():
+            logger.error("Fast2SMS returned return=true but missing valid request_id for %s", masked_mobile)
+            raise SMSDeliveryError("Fast2SMS accepted delivery request but failed to return a valid request_id.")
+
+        clean_request_id = str(request_id).strip()
+        logger.info("Fast2SMS OTP successfully dispatched for %s (request_id=%s)", masked_mobile, clean_request_id)
+
+        msg = data.get("message", "OTP sent successfully")
+        if isinstance(msg, list):
+            msg = ", ".join(str(m) for m in msg)
 
         return {
             "success": True,
-            "request_id": request_id,
-            "message": data.get("message", "OTP sent successfully"),
+            "request_id": clean_request_id,
+            "message": msg,
         }

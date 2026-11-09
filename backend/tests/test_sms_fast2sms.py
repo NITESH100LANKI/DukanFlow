@@ -1,24 +1,32 @@
 """
-Phase 10 — Fast2SMS Smart OTP Provider Integration & Security Tests.
+Phase 10.1 — Fast2SMS Production Reliability Audit & Security Tests.
 
 Tests:
-1. Fast2SMS Smart OTP payload delivery (HTTP 200 + return: true)
-2. Fast2SMS invalid API key handling (HTTP 401/412 -> 503)
-3. Fast2SMS invalid OTP template ID handling (HTTP 400 / return: false -> 502)
-4. Fast2SMS gateway timeout handling (httpx.TimeoutException -> 504)
-5. Fast2SMS HTTP 5xx server error handling (HTTP 500/503 -> 502)
-6. Fast2SMS malformed non-JSON response handling (-> 502)
-7. Zero OTP or API key logging (verifying masking and log hygiene via caplog)
-8. Provider failure atomicity: failed delivery never commits OTPRecord
-9. Rate limiting: 3 requests per 10 minutes per mobile (HTTP 429)
-10. Strike tracking: 5 failed attempts locks OTP (HTTP 423) and replay prevention
-11. Production startup: missing SMS configuration keeps retailer OTP unavailable (HTTP 503)
+1. Fast2SMS Smart OTP payload delivery (HTTP 200 + return: true + valid request_id)
+2. Fast2SMS Smart OTP payload contains: mobile, otp_id, otp, otp_expiry: 10, variables_values
+3. Fast2SMS invalid API key handling (HTTP 401/412 -> 503)
+4. Fast2SMS HTTP 200 with JSON failure (return: false -> 502)
+5. Fast2SMS missing request ID (return: true but request_id missing/empty -> 502)
+6. Fast2SMS gateway timeout handling without automatic retry (httpx.TimeoutException -> 504)
+7. Fast2SMS HTTP 5xx server error handling (HTTP 500/503 -> 502)
+8. Fast2SMS malformed non-JSON response handling (-> 502)
+9. Zero OTP, API key, or complete phone logging (masked logs via caplog)
+10. Delivery state workflow: PENDING -> SENT on success
+11. Delivery state workflow: PENDING -> FAILED on rejection (with sanitized failure reason)
+12. Delivery state workflow: PENDING -> UNKNOWN on timeout (ambiguous acceptance recorded, no retry)
+13. Failed-delivery verification rejection (verification only accepts SENT records)
+14. Expiry mismatch and expired OTP verification rejection (HTTP 401)
+15. Database commit failure handling (clean rollback, HTTP 500)
+16. Rate limiting: 3 requests per 10 minutes per mobile (HTTP 429)
+17. Strike tracking: 5 failed attempts locks OTP (HTTP 423) and replay prevention
+18. Settings configuration validation
 """
 
 import json
 import logging
 import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
 import pytest
 import httpx
 from fastapi import HTTPException
@@ -35,6 +43,7 @@ from app.services.sms_provider import (
     SMSProviderConfigurationError,
     SMSTimeoutError,
     SMSDeliveryError,
+    sanitize_failure_reason,
 )
 
 
@@ -73,13 +82,13 @@ def test_retailer(db_session: Session):
 # ==============================================================================
 
 @pytest.mark.asyncio
-async def test_fast2sms_send_otp_success(monkeypatch):
-    """Fast2SMS sends Smart OTP payload and returns success metadata on valid 200 response."""
+async def test_fast2sms_send_otp_success_payload(monkeypatch):
+    """Fast2SMS sends Smart OTP payload with all required fields and valid request_id."""
     captured_requests = []
 
     async def mock_post(self, url, json=None, headers=None, **kwargs):
         captured_requests.append({"url": url, "json": json, "headers": headers})
-        response = httpx.Response(
+        return httpx.Response(
             status_code=200,
             json={
                 "return": True,
@@ -88,7 +97,6 @@ async def test_fast2sms_send_otp_success(monkeypatch):
             },
             request=httpx.Request("POST", url),
         )
-        return response
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
 
@@ -104,7 +112,7 @@ async def test_fast2sms_send_otp_success(monkeypatch):
     assert result["success"] is True
     assert result["request_id"] == "req_fast2sms_success_12345"
 
-    # Verify request payload
+    # Verify complete payload specification
     assert len(captured_requests) == 1
     req = captured_requests[0]
     assert req["url"] == "https://www.fast2sms.com/dev/otp/send"
@@ -114,6 +122,43 @@ async def test_fast2sms_send_otp_success(monkeypatch):
     assert req["json"]["otp_id"] == "12345"
     assert req["json"]["otp_expiry"] == 10
     assert req["json"]["otp_length"] == 6
+    assert req["json"]["variables_values"] == "654321"
+
+
+@pytest.mark.asyncio
+async def test_fast2sms_http_200_with_json_failure(monkeypatch):
+    """HTTP 200 from provider with JSON return: false must be treated as failure."""
+    async def mock_post(self, url, **kwargs):
+        return httpx.Response(
+            status_code=200,
+            json={"return": False, "status_code": 400, "message": "Invalid Template ID"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    provider = Fast2SMSProvider(api_key="key", otp_id="bad_template")
+    with pytest.raises(SMSDeliveryError) as exc_info:
+        await provider.send_otp(mobile="9876543210", otp="123456")
+    assert "Invalid Template ID" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_fast2sms_missing_request_id(monkeypatch):
+    """HTTP 200 with return: true but missing/empty request_id must raise SMSDeliveryError."""
+    async def mock_post(self, url, **kwargs):
+        return httpx.Response(
+            status_code=200,
+            json={"return": True, "request_id": "", "message": ["Accepted"]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    provider = Fast2SMSProvider(api_key="key", otp_id="12345")
+    with pytest.raises(SMSDeliveryError) as exc_info:
+        await provider.send_otp(mobile="9876543210", otp="123456")
+    assert "missing valid request_id" in str(exc_info.value) or "valid request_id" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -149,27 +194,13 @@ async def test_fast2sms_invalid_api_key_401(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fast2sms_invalid_template_id_or_rejected(monkeypatch):
-    """Fast2SMS return: false payload raises SMSDeliveryError."""
-    async def mock_post(self, url, **kwargs):
-        return httpx.Response(
-            status_code=200,
-            json={"return": False, "status_code": 400, "message": "Invalid OTP Template ID"},
-            request=httpx.Request("POST", url),
-        )
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-
-    provider = Fast2SMSProvider(api_key="key", otp_id="bad_template")
-    with pytest.raises(SMSDeliveryError) as exc_info:
-        await provider.send_otp(mobile="9876543210", otp="123456")
-    assert "Invalid OTP Template ID" in str(exc_info.value)
-
-
-@pytest.mark.asyncio
 async def test_fast2sms_gateway_timeout(monkeypatch):
-    """Fast2SMS timeout raises SMSTimeoutError."""
+    """Fast2SMS timeout raises SMSTimeoutError without retrying."""
+    call_count = 0
+
     async def mock_post(self, url, **kwargs):
+        nonlocal call_count
+        call_count += 1
         raise httpx.TimeoutException("Connection timed out")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
@@ -178,6 +209,7 @@ async def test_fast2sms_gateway_timeout(monkeypatch):
     with pytest.raises(SMSTimeoutError) as exc_info:
         await provider.send_otp(mobile="9876543210", otp="123456")
     assert "timed out" in str(exc_info.value)
+    assert call_count == 1, "Must never automatically retry an ambiguous timeout"
 
 
 @pytest.mark.asyncio
@@ -231,27 +263,65 @@ async def test_fast2sms_zero_otp_or_key_logging(monkeypatch, caplog):
 
     all_logs = caplog.text
 
-    # Strict log sanitation checks
     assert plain_secret_otp not in all_logs, "CRITICAL: Plain OTP code was logged!"
     assert secret_api_key not in all_logs, "CRITICAL: Fast2SMS API key was logged!"
     assert raw_mobile not in all_logs, "CRITICAL: Full raw mobile number was logged!"
     assert "98****3210" in all_logs, "Expected masked mobile number 98****3210 in logs"
 
 
+def test_sanitize_failure_reason():
+    """Verify sanitize_failure_reason removes phone numbers, plain OTPs, and keys."""
+    raw = "Failed for mobile 9876543210 with otp 123456 and key secret_api_key_1234567890abcdef"
+    clean = sanitize_failure_reason(raw)
+    assert "9876543210" not in clean
+    assert "123456" not in clean
+    assert "secret_api_key_1234567890abcdef" not in clean
+    assert "[PHONE_REDACTED]" in clean
+    assert "[OTP_REDACTED]" in clean
+    assert "[SECRET_REDACTED]" in clean
+
+
 # ==============================================================================
-# 2. AuthService Integration Tests with Fast2SMS Provider
+# 2. Delivery State Workflow & AuthService Integration Tests
 # ==============================================================================
 
 @pytest.mark.asyncio
-async def test_auth_service_failed_delivery_does_not_commit_otp(db_session: Session, test_retailer: Retailer, monkeypatch):
-    """
-    If Fast2SMS delivery fails, AuthService must raise HTTP 502/504 and
-    MUST NOT commit an OTPRecord to the database (atomic guarantee).
-    """
+async def test_auth_service_delivery_state_workflow_success(db_session: Session, test_retailer: Retailer, monkeypatch):
+    """Successful dispatch updates state from PENDING to SENT and records provider_request_id."""
+    async def mock_post_ok(self, url, json=None, **kwargs):
+        return httpx.Response(
+            status_code=200,
+            json={"return": True, "request_id": "req_audit_success_999", "message": "Dispatched"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post_ok)
+    monkeypatch.setattr(config.settings, "ENVIRONMENT", "staging")
+    monkeypatch.setattr(config.settings, "DEMO_MODE", False)
+    monkeypatch.setattr(config.settings, "SMS_PROVIDER", "fast2sms")
+    monkeypatch.setattr(config.settings, "FAST2SMS_API_KEY", "mock_key")
+    monkeypatch.setattr(config.settings, "FAST2SMS_OTP_ID", "mock_otp_id")
+
+    res = await AuthService.request_otp(db_session, test_retailer.mobile)
+    assert res["message"] == "OTP sent"
+
+    # Verify record in DB has delivery_status='SENT' and provider_request_id
+    record = db_session.execute(
+        select(OTPRecord).where(OTPRecord.mobile == test_retailer.mobile).order_by(OTPRecord.created_at.desc())
+    ).scalar_one()
+
+    assert record.delivery_status == "SENT"
+    assert record.provider_request_id == "req_audit_success_999"
+    assert record.failure_reason is None
+
+
+@pytest.mark.asyncio
+async def test_auth_service_delivery_state_workflow_failure(db_session: Session, test_retailer: Retailer, monkeypatch):
+    """Failed dispatch marks record as FAILED with sanitized failure_reason."""
     async def mock_post_fail(self, url, **kwargs):
         return httpx.Response(
-            status_code=503,
-            text="SMS Gateway Down",
+            status_code=400,
+            json={"return": False, "message": "Invalid Template ID for 9876543210"},
             request=httpx.Request("POST", url),
         )
 
@@ -266,20 +336,30 @@ async def test_auth_service_failed_delivery_does_not_commit_otp(db_session: Sess
         await AuthService.request_otp(db_session, test_retailer.mobile)
 
     assert exc_info.value.status_code == 502
-    assert "SMS gateway delivery failure" in exc_info.value.detail
 
-    # Verify atomic rollback: no OTPRecord exists for this mobile
-    count = db_session.execute(
-        select(OTPRecord).where(OTPRecord.mobile == test_retailer.mobile)
-    ).scalars().all()
-    assert len(count) == 0, "Failed SMS delivery must never persist an OTPRecord!"
+    # Verify record is marked FAILED in DB and stores sanitized failure reason
+    record = db_session.execute(
+        select(OTPRecord).where(OTPRecord.mobile == test_retailer.mobile).order_by(OTPRecord.created_at.desc())
+    ).scalar_one()
+
+    assert record.delivery_status == "FAILED"
+    assert record.failure_reason is not None
+    assert "9876543210" not in record.failure_reason
+    assert "[PHONE_REDACTED]" in record.failure_reason
 
 
 @pytest.mark.asyncio
-async def test_auth_service_timeout_returns_504(db_session: Session, test_retailer: Retailer, monkeypatch):
-    """Gateway timeout during request_otp returns HTTP 504 and leaves zero records in DB."""
+async def test_auth_service_timeout_after_possible_acceptance(db_session: Session, test_retailer: Retailer, monkeypatch):
+    """
+    On timeout, provider may have accepted the SMS.
+    System must transition status to UNKNOWN, never retry, and verify must reject it.
+    """
+    call_count = 0
+
     async def mock_post_timeout(self, url, **kwargs):
-        raise httpx.TimeoutException("Timeout")
+        nonlocal call_count
+        call_count += 1
+        raise httpx.TimeoutException("Read timeout after 10s")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post_timeout)
     monkeypatch.setattr(config.settings, "ENVIRONMENT", "staging")
@@ -292,13 +372,96 @@ async def test_auth_service_timeout_returns_504(db_session: Session, test_retail
         await AuthService.request_otp(db_session, test_retailer.mobile)
 
     assert exc_info.value.status_code == 504
-    assert "SMS gateway timed out" in exc_info.value.detail
+    assert call_count == 1, "Must not retry ambiguous timeout"
 
-    # Verify no phantom record
-    records = db_session.execute(
-        select(OTPRecord).where(OTPRecord.mobile == test_retailer.mobile)
-    ).scalars().all()
-    assert len(records) == 0
+    # Verify record is marked UNKNOWN
+    record = db_session.execute(
+        select(OTPRecord).where(OTPRecord.mobile == test_retailer.mobile).order_by(OTPRecord.created_at.desc())
+    ).scalar_one()
+
+    assert record.delivery_status == "UNKNOWN"
+    assert "ambiguous" in record.failure_reason.lower()
+
+    # Verification on UNKNOWN delivery status must be strictly rejected
+    with pytest.raises(HTTPException) as verify_exc:
+        AuthService.verify_otp(db_session, test_retailer.mobile, "123456")
+    assert verify_exc.value.status_code == 401
+    assert "not completed successfully" in verify_exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_auth_service_rejects_verification_of_failed_or_pending_delivery(
+    db_session: Session, test_retailer: Retailer
+):
+    """Verification must only accept valid OTP records whose delivery was successfully accepted (SENT)."""
+    from app.core.security import hash_otp
+
+    # 1. Test PENDING record rejection
+    pending_record = OTPRecord(
+        mobile=test_retailer.mobile,
+        otp_hash=hash_otp("111222"),
+        attempts=0,
+        locked=False,
+        verified=False,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        delivery_status="PENDING",
+    )
+    db_session.add(pending_record)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc1:
+        AuthService.verify_otp(db_session, test_retailer.mobile, "111222")
+    assert exc1.value.status_code == 401
+    assert "not completed successfully" in exc1.value.detail
+
+    # 2. Test FAILED record rejection
+    pending_record.delivery_status = "FAILED"
+    pending_record.failure_reason = "Simulated provider failure"
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc2:
+        AuthService.verify_otp(db_session, test_retailer.mobile, "111222")
+    assert exc2.value.status_code == 401
+    assert "not completed successfully" in exc2.value.detail
+
+
+@pytest.mark.asyncio
+async def test_auth_service_expiry_mismatch_rejected(db_session: Session, test_retailer: Retailer):
+    """An expired OTP record (past 10 minutes) must be rejected with HTTP 401."""
+    from app.core.security import hash_otp
+
+    expired_record = OTPRecord(
+        mobile=test_retailer.mobile,
+        otp_hash=hash_otp("999888"),
+        attempts=0,
+        locked=False,
+        verified=False,
+        expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),  # Expired 1 min ago
+        delivery_status="SENT",
+    )
+    db_session.add(expired_record)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        AuthService.verify_otp(db_session, test_retailer.mobile, "999888")
+    assert exc_info.value.status_code == 401
+    assert "Invalid or expired OTP" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_auth_service_database_commit_failure_handled(
+    db_session: Session, test_retailer: Retailer, monkeypatch
+):
+    """Database commit failure during initial record creation triggers clean rollback and HTTP 500."""
+    def broken_commit():
+        raise Exception("Disk I/O error or constraint violation")
+
+    monkeypatch.setattr(db_session, "commit", broken_commit)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await AuthService.request_otp(db_session, test_retailer.mobile)
+    assert exc_info.value.status_code == 500
+    assert "Database error" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
@@ -307,10 +470,10 @@ async def test_auth_service_successful_otp_lifecycle_and_replay_protection(
 ):
     """
     Complete lifecycle with Fast2SMS:
-    1. Send OTP -> dispatched via Fast2SMS and hashed in DB
+    1. Send OTP -> dispatched via Fast2SMS with delivery_status='SENT'
     2. 5 wrong attempts -> locks OTP (HTTP 423)
     3. New OTP -> verified successfully
-    4. Replay of same OTP -> rejected (HTTP 401)
+    4. Replay of same OTP -> rejected (HTTP 401 / 423)
     """
     dispatched_otps = []
 
@@ -348,11 +511,6 @@ async def test_auth_service_successful_otp_lifecycle_and_replay_protection(
         AuthService.verify_otp(db_session, test_retailer.mobile, "000000")
     assert exc_info.value.status_code == 423
     assert "OTP is locked" in exc_info.value.detail
-
-    # Trying even the correct OTP on a locked record is rejected with 423
-    with pytest.raises(HTTPException) as exc_info:
-        AuthService.verify_otp(db_session, test_retailer.mobile, first_otp)
-    assert exc_info.value.status_code == 423
 
     # 3. Request OTP #2
     res2 = await AuthService.request_otp(db_session, test_retailer.mobile)

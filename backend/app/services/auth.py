@@ -38,6 +38,7 @@ from app.services.sms_provider import (
     SMSProviderConfigurationError,
     SMSTimeoutError,
     SMSDeliveryError,
+    sanitize_failure_reason,
 )
 
 logger = logging.getLogger(__name__)
@@ -114,30 +115,11 @@ class AuthService:
         else:
             plain_otp = f"{secrets.randbelow(900000) + 100000}"
 
-        # If SMS provider is configured, send the plain OTP via Fast2SMS BEFORE committing
-        if settings.SMS_PROVIDER == "fast2sms":
-            active_provider = provider or Fast2SMSProvider()
-            try:
-                await active_provider.send_otp(mobile=mobile, otp=plain_otp)
-            except SMSProviderConfigurationError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=f"SMS gateway configuration error: {str(exc)}",
-                ) from exc
-            except SMSTimeoutError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                    detail="SMS gateway timed out. Please try again shortly.",
-                ) from exc
-            except SMSDeliveryError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"SMS gateway delivery failure: {str(exc)}",
-                ) from exc
-
         hashed_code = hash_otp(plain_otp)
         expires_at = now + timedelta(minutes=10)
 
+        # 1. Persist initial OTPRecord with delivery_status='PENDING'
+        # Ensures an unambiguous audit record exists prior to network dispatch
         otp_record = OTPRecord(
             mobile=mobile,
             otp_hash=hashed_code,
@@ -145,10 +127,101 @@ class AuthService:
             locked=False,
             verified=False,
             expires_at=expires_at,
+            delivery_status="PENDING",
+            provider_request_id=None,
+            failure_reason=None,
         )
         db.add(otp_record)
-        db.commit()
+        try:
+            db.commit()
+            db.refresh(otp_record)
+        except Exception as exc:
+            db.rollback()
+            logger.error("Database commit failure initializing PENDING OTP record: %s", type(exc).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database error initializing OTP delivery record.",
+            ) from exc
 
+        # 2. Demo mode execution (local development only)
+        if settings.DEMO_MODE:
+            otp_record.delivery_status = "SENT"
+            otp_record.provider_request_id = "demo_mode"
+            try:
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                logger.error("Database commit failure updating demo OTP record: %s", type(exc).__name__)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Database error finalizing OTP delivery state.",
+                ) from exc
+            return {"message": "OTP sent", "expires_in_seconds": 600}
+
+        # 3. Live SMS Provider Dispatch via Fast2SMS Smart OTP
+        if settings.SMS_PROVIDER == "fast2sms":
+            active_provider = provider or Fast2SMSProvider()
+            try:
+                send_res = await active_provider.send_otp(mobile=mobile, otp=plain_otp)
+                otp_record.delivery_status = "SENT"
+                otp_record.provider_request_id = send_res.get("request_id")
+                otp_record.failure_reason = None
+                db.commit()
+                return {"message": "OTP sent", "expires_in_seconds": 600}
+            except SMSTimeoutError as exc:
+                # Ambiguous timeout: the gateway may have accepted the SMS or is processing it.
+                # Never retry automatically to prevent duplicate SMS delivery. Transition to UNKNOWN.
+                otp_record.delivery_status = "UNKNOWN"
+                otp_record.failure_reason = sanitize_failure_reason(
+                    "Gateway timed out during dispatch; provider acceptance status is ambiguous."
+                )
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="SMS gateway timed out. Please try again shortly.",
+                ) from exc
+            except SMSDeliveryError as exc:
+                # Upstream delivery rejection, HTTP 4xx/5xx, or return: false
+                otp_record.delivery_status = "FAILED"
+                otp_record.failure_reason = sanitize_failure_reason(str(exc))
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"SMS gateway delivery failure: {otp_record.failure_reason}",
+                ) from exc
+            except SMSProviderConfigurationError as exc:
+                # Missing or invalid credentials
+                otp_record.delivery_status = "FAILED"
+                otp_record.failure_reason = sanitize_failure_reason(str(exc))
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"SMS gateway configuration error: {otp_record.failure_reason}",
+                ) from exc
+            except Exception as exc:
+                otp_record.delivery_status = "FAILED"
+                otp_record.failure_reason = sanitize_failure_reason(str(exc))
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Unexpected error occurred during OTP dispatch.",
+                ) from exc
+
+        # If SMS_PROVIDER is disabled and not in demo mode (e.g. testing), mark SENT
+        otp_record.delivery_status = "SENT"
+        db.commit()
         return {"message": "OTP sent", "expires_in_seconds": 600}
 
     @staticmethod
@@ -158,6 +231,7 @@ class AuthService:
         """
         Verifies an OTP and issues access + refresh tokens.
         Locks OTP record after 5 failed attempts.
+        Only accepts OTP records whose delivery was successfully completed (SENT).
         """
         now = datetime.now(timezone.utc)
 
@@ -178,6 +252,18 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired OTP. Please request a new one.",
+            )
+
+        # Reliability guard: Only accept OTP records whose delivery was successfully accepted
+        if record.delivery_status != "SENT":
+            logger.warning(
+                "Attempted verification on OTP record with non-SENT delivery_status: %s (id=%s)",
+                record.delivery_status,
+                record.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="OTP delivery was not completed successfully. Please request a new OTP.",
             )
 
         if record.locked:

@@ -122,6 +122,7 @@ def test_verify_otp_success(client: TestClient, seeded_users, db_session):
         attempts=0,
         locked=False,
         verified=False,
+        delivery_status="SENT",
         expires_at=now + timedelta(minutes=10),
     )
     db_session.add(otp_rec)
@@ -152,6 +153,7 @@ def test_verify_otp_invalid_and_lockout(
         attempts=0,
         locked=False,
         verified=False,
+        delivery_status="SENT",
         expires_at=now + timedelta(minutes=10),
     )
     db_session.add(otp_rec)
@@ -435,8 +437,10 @@ def test_otp_non_demo_generates_random(client: TestClient, db_session: Session):
     db_session.commit()
 
     original_mode = settings.DEMO_MODE
+    original_provider = settings.SMS_PROVIDER
     try:
         settings.DEMO_MODE = False
+        settings.SMS_PROVIDER = "disabled"
         res = client.post(
             "/api/v1/auth/retailer/request-otp",
             json={"mobile": rand_mobile},
@@ -455,6 +459,7 @@ def test_otp_non_demo_generates_random(client: TestClient, db_session: Session):
         assert not verify_otp_hash("123456", rec.otp_hash)
     finally:
         settings.DEMO_MODE = original_mode
+        settings.SMS_PROVIDER = original_provider
 
 
 def test_refresh_cookie_security_attributes(client: TestClient, seeded_users):

@@ -8,6 +8,7 @@ SQLAlchemy ORM models for Authentication and Authorization:
 
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy import (
     String,
     Text,
@@ -100,6 +101,15 @@ class OTPRecord(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
+    )
+    delivery_status: Mapped[str] = mapped_column(
+        String(20), default="PENDING", server_default="PENDING", index=True, nullable=False
+    )
+    provider_request_id: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    failure_reason: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
