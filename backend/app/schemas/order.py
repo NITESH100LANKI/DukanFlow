@@ -45,6 +45,7 @@ class OrderLineRead(BaseModel):
     unit_price: Decimal
     gross_amount: Decimal
     discount_amount: Decimal
+    benefit_value: Decimal
     net_amount: Decimal
     raw_fragment: Optional[str] = None
 
@@ -75,6 +76,8 @@ class OrderRead(BaseModel):
     status: str
 
     gross_total: Decimal
+    discount_total: Decimal
+    benefit_total: Decimal
     scheme_total: Decimal
     net_total: Decimal
 
@@ -104,6 +107,8 @@ class OrderListItem(BaseModel):
     order_source: str
     status: str
     gross_total: Decimal
+    discount_total: Decimal
+    benefit_total: Decimal
     scheme_total: Decimal
     net_total: Decimal
     total_cases: int
@@ -136,3 +141,4 @@ class DeskOrderRejectRequest(BaseModel):
 
 class DeskOrderApproveRequest(BaseModel):
     note: Optional[str] = Field(None, max_length=500, description="Optional approval remarks")
+

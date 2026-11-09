@@ -84,22 +84,25 @@ class OrderService:
         - Inventory is NEVER deducted here (only on desk approval).
         - Clears the retailer's cart upon successful order creation.
         """
-        # 1. Idempotency Check
+        # 1. Idempotency Check (Cross-retailer ownership security)
         if idempotency_key:
-            existing = db.execute(
+            existing_any = db.execute(
                 select(Order)
                 .options(
                     selectinload(Order.lines).selectinload(OrderLine.product),
                     selectinload(Order.audit_logs),
                     selectinload(Order.retailer),
                 )
-                .where(
-                    Order.retailer_id == retailer_id,
-                    Order.idempotency_key == idempotency_key,
-                )
+                .where(Order.idempotency_key == idempotency_key)
             ).scalar_one_or_none()
-            if existing:
-                return existing
+            if existing_any:
+                if existing_any.retailer_id == retailer_id:
+                    return existing_any
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Idempotency key has already been used by another retailer",
+                    )
 
         # 2. Fetch active cart
         cart_stmt = (
@@ -191,6 +194,7 @@ class OrderService:
                 unit_price=case_price,
                 gross_amount=calc_result.gross_amount,
                 discount_amount=calc_result.discount_amount,
+                benefit_value=calc_result.benefit_value,
                 net_amount=calc_result.net_payable,
             )
             db.add(order_line)
@@ -204,7 +208,9 @@ class OrderService:
             total_fulfilment_cases += calc_result.fulfilment_qty_cases
 
         order.gross_total = total_gross
-        order.scheme_total = total_discount + total_benefit
+        order.discount_total = total_discount
+        order.benefit_total = total_benefit
+        order.scheme_total = total_benefit
         order.net_total = total_net
         order.total_cases = total_cases
         order.total_free_cases = total_free_cases
@@ -304,6 +310,8 @@ class OrderService:
                 "order_source": o.order_source,
                 "status": o.status,
                 "gross_total": o.gross_total,
+                "discount_total": o.discount_total,
+                "benefit_total": o.benefit_total,
                 "scheme_total": o.scheme_total,
                 "net_total": o.net_total,
                 "total_cases": o.total_cases,
@@ -367,6 +375,8 @@ class OrderService:
                 "order_source": o.order_source,
                 "status": o.status,
                 "gross_total": o.gross_total,
+                "discount_total": o.discount_total,
+                "benefit_total": o.benefit_total,
                 "scheme_total": o.scheme_total,
                 "net_total": o.net_total,
                 "total_cases": o.total_cases,
@@ -397,12 +407,28 @@ class OrderService:
     ) -> Order:
         """
         Order Desk quantity correction:
+        - Locks the order row using SELECT ... FOR UPDATE.
         - Only permitted on orders in SUBMITTED status.
         - Recalculates scheme bonus, discount, and payable using SAVED SNAPSHOTS.
         - Updates line and re-aggregates order totals.
         - Records an immutable audit log entry.
         """
-        order = cls.get_order_by_id(db, order_id)
+        order = db.execute(
+            select(Order)
+            .options(
+                selectinload(Order.lines).selectinload(OrderLine.product),
+                selectinload(Order.audit_logs),
+                selectinload(Order.retailer),
+            )
+            .where(Order.id == order_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Order {order_id} not found",
+            )
 
         if order.status != "SUBMITTED":
             raise HTTPException(
@@ -448,16 +474,19 @@ class OrderService:
         target_line.fulfilment_qty_cases = calc_result.fulfilment_qty_cases
         target_line.gross_amount = calc_result.gross_amount
         target_line.discount_amount = calc_result.discount_amount
+        target_line.benefit_value = calc_result.benefit_value
         target_line.net_amount = calc_result.net_payable
 
         # Recalculate order totals
         total_gross = sum(l.gross_amount for l in order.lines)
         total_discount = sum(l.discount_amount for l in order.lines)
-        total_free_goods_val = sum(l.free_cases * l.unit_price for l in order.lines)
+        total_benefit = sum(l.benefit_value for l in order.lines)
         total_net = sum(l.net_amount for l in order.lines)
 
         order.gross_total = total_gross
-        order.scheme_total = total_discount + total_free_goods_val
+        order.discount_total = total_discount
+        order.benefit_total = total_benefit
+        order.scheme_total = total_benefit
         order.net_total = total_net
         order.total_cases = sum(l.qty_cases for l in order.lines)
         order.total_free_cases = sum(l.free_cases for l in order.lines)
@@ -499,13 +528,30 @@ class OrderService:
     ) -> Order:
         """
         Approve an order:
-        - Only permitted on orders in SUBMITTED status.
+        - Locks the order row first using SELECT ... FOR UPDATE.
+        - Re-checks that order status is SUBMITTED under the row lock.
         - Deterministically locks affected product rows in ascending order to prevent deadlocks.
         - Revalidates stock against physical fulfilment cases (including free scheme cases).
         - Atomically deducts inventory and transitions status to APPROVED.
         - On insufficient stock, rolls back atomically and raises HTTP 409 Conflict.
         """
-        order = cls.get_order_by_id(db, order_id)
+        # 1. Lock the order row first
+        order = db.execute(
+            select(Order)
+            .options(
+                selectinload(Order.lines).selectinload(OrderLine.product),
+                selectinload(Order.audit_logs),
+                selectinload(Order.retailer),
+            )
+            .where(Order.id == order_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Order {order_id} not found",
+            )
 
         if order.status != "SUBMITTED":
             raise HTTPException(
@@ -513,7 +559,7 @@ class OrderService:
                 detail=f"Order cannot be approved: current status is '{order.status}' (expected SUBMITTED)",
             )
 
-        # 1. Deterministic locking of product rows
+        # 2. Deterministic locking of product rows
         sorted_product_ids = sorted(list(set(line.product_id for line in order.lines)))
         locked_products = (
             db.execute(
@@ -527,14 +573,14 @@ class OrderService:
         )
         product_map: Dict[uuid.UUID, Product] = {p.id: p for p in locked_products}
 
-        # 2. Aggregate required fulfilment quantities per product
+        # 3. Aggregate required fulfilment quantities per product
         needed_by_product: Dict[uuid.UUID, int] = {}
         for line in order.lines:
             needed_by_product[line.product_id] = (
                 needed_by_product.get(line.product_id, 0) + line.fulfilment_qty_cases
             )
 
-        # 3. Revalidate physical stock availability
+        # 4. Revalidate physical stock availability
         insufficient_items = []
         for pid, required_cases in needed_by_product.items():
             product = product_map.get(pid)
@@ -560,7 +606,7 @@ class OrderService:
                 },
             )
 
-        # 4. Atomic inventory deduction
+        # 5. Atomic inventory deduction
         deductions_detail = []
         for pid, required_cases in needed_by_product.items():
             product = product_map[pid]
@@ -572,11 +618,11 @@ class OrderService:
                 "remaining_stock": product.stock_cases,
             })
 
-        # 5. Transition status to APPROVED
+        # 6. Transition status to APPROVED
         order.status = "APPROVED"
         order.reviewed_by = desk_user_id
 
-        # 6. Audit log entry
+        # 7. Audit log entry
         audit_entry = OrderAuditLog(
             order_id=order.id,
             actor_type="order_desk",
@@ -605,6 +651,7 @@ class OrderService:
     ) -> Order:
         """
         Reject an order:
+        - Locks the order row first using SELECT ... FOR UPDATE.
         - Only permitted on orders in SUBMITTED status.
         - Requires a mandatory non-empty reason.
         - Transitions status to REJECTED.
@@ -616,7 +663,22 @@ class OrderService:
                 detail="A non-empty rejection reason is required",
             )
 
-        order = cls.get_order_by_id(db, order_id)
+        order = db.execute(
+            select(Order)
+            .options(
+                selectinload(Order.lines).selectinload(OrderLine.product),
+                selectinload(Order.audit_logs),
+                selectinload(Order.retailer),
+            )
+            .where(Order.id == order_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Order {order_id} not found",
+            )
 
         if order.status != "SUBMITTED":
             raise HTTPException(
@@ -642,3 +704,4 @@ class OrderService:
         db.commit()
 
         return cls.get_order_by_id(db, order.id)
+

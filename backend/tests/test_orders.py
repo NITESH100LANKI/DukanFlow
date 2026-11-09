@@ -118,7 +118,7 @@ def products():
         tea = db.execute(select(Product).where(Product.sku == "SKU-TE-250")).scalar_one()
 
         biscuit.stock_cases = 340
-        detergent.stock_cases = 120
+        detergent.stock_cases = 85
         tea.stock_cases = 0
         db.commit()
         db.refresh(biscuit)
@@ -126,18 +126,22 @@ def products():
         db.refresh(tea)
         yield {"biscuit": biscuit, "detergent": detergent, "tea": tea}
     finally:
-        # Restore canonical seeded stock
-        biscuit = db.execute(select(Product).where(Product.sku == "SKU-BS-075")).scalar_one_or_none()
-        if biscuit:
-            biscuit.stock_cases = 340
-        detergent = db.execute(select(Product).where(Product.sku == "SKU-DT-1KG")).scalar_one_or_none()
-        if detergent:
-            detergent.stock_cases = 120
-        tea = db.execute(select(Product).where(Product.sku == "SKU-TE-250")).scalar_one_or_none()
-        if tea:
-            tea.stock_cases = 0
-        db.commit()
-        db.close()
+        # Restore canonical seeded stock with a clean session
+        restore_db = SessionLocal()
+        try:
+            b = restore_db.execute(select(Product).where(Product.sku == "SKU-BS-075")).scalar_one_or_none()
+            if b:
+                b.stock_cases = 340
+            d = restore_db.execute(select(Product).where(Product.sku == "SKU-DT-1KG")).scalar_one_or_none()
+            if d:
+                d.stock_cases = 85
+            t = restore_db.execute(select(Product).where(Product.sku == "SKU-TE-250")).scalar_one_or_none()
+            if t:
+                t.stock_cases = 0
+            restore_db.commit()
+        finally:
+            restore_db.close()
+            db.close()
 
 
 def test_empty_cart_order_placement_rejected(retailer_a):
@@ -537,3 +541,206 @@ def test_cannot_modify_or_reapprove_finalized_orders(retailer_a, desk_user, prod
         headers=desk_headers,
     )
     assert res_edit.status_code == 400
+
+
+def test_concurrent_order_approvals_prevent_double_deduction(retailer_a, desk_user, products):
+    """
+    Two concurrent approval requests attempting to approve the same submitted order:
+    - Order row is locked using SELECT ... FOR UPDATE.
+    - Exactly ONE request succeeds (status 200).
+    - The concurrent request fails with status 400 (order status is already APPROVED).
+    - Physical stock is deducted EXACTLY ONCE for fulfilment cases.
+    """
+    import concurrent.futures
+
+    retailer_headers = {"Authorization": f"Bearer {retailer_a['token']}"}
+    desk_headers = {"Authorization": f"Bearer {desk_user['token']}"}
+    biscuit = products["biscuit"]
+
+    # 1. Ensure product has known stock
+    db = SessionLocal()
+    p = db.execute(select(Product).where(Product.id == biscuit.id)).scalar_one()
+    initial_stock = 340
+    p.stock_cases = initial_stock
+    db.commit()
+    db.close()
+
+    # 2. Place an order for 10 cases of biscuits (Buy 10 get 1 free -> 11 fulfilment cases)
+    client.delete("/api/v1/cart", headers=retailer_headers)
+    client.post(
+        "/api/v1/cart/lines",
+        json={"product_id": str(biscuit.id), "qty_cases": 10},
+        headers=retailer_headers,
+    )
+    res = client.post("/api/v1/orders", json={}, headers=retailer_headers)
+    assert res.status_code == 201
+    order_id = res.json()["id"]
+
+    # 3. Concurrently invoke approve endpoint using 2 separate worker threads
+    def do_approve():
+        with TestClient(app) as thread_client:
+            return thread_client.post(
+                f"/api/v1/desk/orders/{order_id}/approve",
+                headers=desk_headers,
+                json={"note": "Concurrent approval test"},
+            )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        f1 = executor.submit(do_approve)
+        f2 = executor.submit(do_approve)
+        r1 = f1.result()
+        r2 = f2.result()
+
+    status_codes = sorted([r1.status_code, r2.status_code])
+    # Exactly one must succeed (200) and the other must fail (400)
+    assert status_codes == [200, 400]
+
+    # Verify inventory was deducted exactly ONCE (340 - 11 = 329)
+    db = SessionLocal()
+    p = db.execute(select(Product).where(Product.id == biscuit.id)).scalar_one()
+    assert p.stock_cases == initial_stock - 11
+    # Restore stock
+    p.stock_cases = initial_stock
+    db.commit()
+    db.close()
+
+
+def test_free_goods_benefit_and_monetary_discount_separation(retailer_a, desk_user, products):
+    """
+    Verifies that:
+    - Buy 10 Get 1 Free Biscuit:
+      Gross: 7776.00, Discount: 0.00, Benefit: 777.60, Net: 7776.00
+      (free goods benefit value is NOT subtracted from net payable).
+    - 3% Discount Detergent (5 cases @ 2030.00 = 10150.00):
+      Gross: 10150.00, Discount: 304.50, Benefit: 304.50, Net: 9845.50.
+    - Order summary:
+      Gross: 17926.00, Discount total: 304.50, Benefit total: 1082.10, Scheme total: 1082.10, Net total: 17621.50.
+    - Values are preserved on Order and OrderLine models and API outputs.
+    """
+    retailer_headers = {"Authorization": f"Bearer {retailer_a['token']}"}
+    biscuit = products["biscuit"]
+    detergent = products["detergent"]
+
+    client.delete("/api/v1/cart", headers=retailer_headers)
+    # 10 cases of biscuits
+    client.post(
+        "/api/v1/cart/lines",
+        json={"product_id": str(biscuit.id), "qty_cases": 10},
+        headers=retailer_headers,
+    )
+    # 5 cases of detergent
+    client.post(
+        "/api/v1/cart/lines",
+        json={"product_id": str(detergent.id), "qty_cases": 5},
+        headers=retailer_headers,
+    )
+
+    res = client.post("/api/v1/orders", json={}, headers=retailer_headers)
+    assert res.status_code == 201
+    data = res.json()
+
+    assert Decimal(str(data["gross_total"])) == Decimal("17926.00")
+    assert Decimal(str(data["discount_total"])) == Decimal("304.50")
+    assert Decimal(str(data["benefit_total"])) == Decimal("1082.10")
+    assert Decimal(str(data["net_total"])) == Decimal("17621.50")
+
+    # Inspect individual lines
+    lines_by_sku = {l["sku_snapshot"]: l for l in data["lines"]}
+    biscuit_line = lines_by_sku["SKU-BS-075"]
+    assert biscuit_line["qty_cases"] == 10
+    assert biscuit_line["free_cases"] == 1
+    assert biscuit_line["fulfilment_qty_cases"] == 11
+    assert Decimal(str(biscuit_line["gross_amount"])) == Decimal("7776.00")
+    assert Decimal(str(biscuit_line["discount_amount"])) == Decimal("0.00")
+    assert Decimal(str(biscuit_line["benefit_value"])) == Decimal("777.60")
+    assert Decimal(str(biscuit_line["net_amount"])) == Decimal("7776.00")
+
+    det_line = lines_by_sku["SKU-DT-1KG"]
+    assert det_line["qty_cases"] == 5
+    assert det_line["free_cases"] == 0
+    assert det_line["fulfilment_qty_cases"] == 5
+    assert Decimal(str(det_line["gross_amount"])) == Decimal("10150.00")
+    assert Decimal(str(det_line["discount_amount"])) == Decimal("304.50")
+    assert Decimal(str(det_line["benefit_value"])) == Decimal("304.50")
+    assert Decimal(str(det_line["net_amount"])) == Decimal("9845.50")
+
+
+def test_cross_retailer_idempotency_isolation(retailer_a, retailer_b, products):
+    """
+    If Retailer B sends an order placement request using an Idempotency-Key
+    already used by Retailer A:
+    - Return 409 Conflict.
+    - Do NOT return Retailer A's order to Retailer B.
+    - Retailer B's cart remains unchanged.
+    """
+    retailer_a_headers = {
+        "Authorization": f"Bearer {retailer_a['token']}",
+        "Idempotency-Key": "SHARED-KEY-ATTEMPT-001",
+    }
+    retailer_b_headers = {
+        "Authorization": f"Bearer {retailer_b['token']}",
+        "Idempotency-Key": "SHARED-KEY-ATTEMPT-001",
+    }
+    biscuit = products["biscuit"]
+
+    # Retailer A places order with key
+    client.delete("/api/v1/cart", headers=retailer_a_headers)
+    client.post(
+        "/api/v1/cart/lines",
+        json={"product_id": str(biscuit.id), "qty_cases": 1},
+        headers=retailer_a_headers,
+    )
+    res_a = client.post("/api/v1/orders", json={}, headers=retailer_a_headers)
+    assert res_a.status_code == 201
+
+    # Retailer B attempts to use the same idempotency key
+    client.delete("/api/v1/cart", headers=retailer_b_headers)
+    client.post(
+        "/api/v1/cart/lines",
+        json={"product_id": str(biscuit.id), "qty_cases": 2},
+        headers=retailer_b_headers,
+    )
+    res_b = client.post("/api/v1/orders", json={}, headers=retailer_b_headers)
+    assert res_b.status_code == 409
+    assert "another retailer" in res_b.json()["detail"].lower()
+
+    # Confirm Retailer B cart was NOT cleared
+    cart_b = client.get("/api/v1/cart", headers=retailer_b_headers).json()
+    assert len(cart_b["lines"]) == 1
+
+
+def test_failed_submission_preserves_cart(retailer_a, products):
+    """
+    If an order creation fails (e.g. inactive product in cart),
+    the cart is not cleared and remains intact for the retailer.
+    """
+    retailer_headers = {"Authorization": f"Bearer {retailer_a['token']}"}
+    biscuit = products["biscuit"]
+
+    client.delete("/api/v1/cart", headers=retailer_headers)
+    client.post(
+        "/api/v1/cart/lines",
+        json={"product_id": str(biscuit.id), "qty_cases": 2},
+        headers=retailer_headers,
+    )
+
+    # Deactivate biscuit temporarily
+    db = SessionLocal()
+    p = db.execute(select(Product).where(Product.id == biscuit.id)).scalar_one()
+    p.is_active = False
+    db.commit()
+
+    try:
+        res = client.post("/api/v1/orders", json={}, headers=retailer_headers)
+        assert res.status_code == 400
+        assert "no longer active" in res.json()["detail"].lower()
+
+        # Cart lines must still be present
+        cart = client.get("/api/v1/cart", headers=retailer_headers).json()
+        assert len(cart["lines"]) == 1
+        assert cart["lines"][0]["qty_cases"] == 2
+    finally:
+        p.is_active = True
+        db.commit()
+        db.close()
+

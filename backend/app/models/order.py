@@ -68,6 +68,12 @@ class Order(Base):
     gross_total: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), default=Decimal("0.00"), nullable=False
     )
+    discount_total: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), default=Decimal("0.00"), nullable=False
+    )
+    benefit_total: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), default=Decimal("0.00"), nullable=False
+    )
     scheme_total: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), default=Decimal("0.00"), nullable=False
     )
@@ -187,6 +193,9 @@ class OrderLine(Base):
     discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), default=Decimal("0.00"), nullable=False
     )
+    benefit_value: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), default=Decimal("0.00"), nullable=False
+    )
     net_amount: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), nullable=False
     )
@@ -251,3 +260,4 @@ class OrderAuditLog(Base):
 
     # Relationships
     order: Mapped["Order"] = relationship("Order", back_populates="audit_logs")
+
