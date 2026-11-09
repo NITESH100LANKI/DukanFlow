@@ -42,7 +42,7 @@ def set_refresh_cookie(response: Response, token: str, expires_at: Any) -> None:
     response_model=RequestOTPResponse,
     summary="Request mobile OTP for retailer login",
 )
-def request_retailer_otp(
+async def request_retailer_otp(
     payload: RequestOTPRequest,
     db: Session = Depends(get_db),
 ):
@@ -50,7 +50,7 @@ def request_retailer_otp(
     Initiates mobile number OTP verification for a retailer.
     In DEMO_MODE, the OTP is fixed to DEMO_OTP (123456).
     """
-    res = AuthService.request_otp(db, payload.mobile)
+    res = await AuthService.request_otp(db, payload.mobile)
     return res
 
 

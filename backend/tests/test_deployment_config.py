@@ -146,7 +146,8 @@ async def test_production_startup_guard_succeeds_when_demo_mode_false(monkeypatc
         assert config.settings.DEMO_MODE is False
 
 
-def test_production_guard_rejects_demo_mode(monkeypatch):
+@pytest.mark.asyncio
+async def test_production_guard_rejects_demo_mode(monkeypatch):
     """Production guard must raise HTTP 500 if DEMO_MODE is True in production."""
     from app.core import config
     from app.core.database import SessionLocal
@@ -157,14 +158,15 @@ def test_production_guard_rejects_demo_mode(monkeypatch):
     db = SessionLocal()
     try:
         with pytest.raises(HTTPException) as exc_info:
-            AuthService.request_otp(db, "9876543210")
+            await AuthService.request_otp(db, "9876543210")
         assert exc_info.value.status_code == 500
         assert "DEMO_MODE must be disabled in production" in exc_info.value.detail
     finally:
         db.close()
 
 
-def test_production_guard_rejects_otp_without_real_provider(monkeypatch):
+@pytest.mark.asyncio
+async def test_production_guard_rejects_otp_without_real_provider(monkeypatch):
     """
     A boolean flag alone cannot bypass the absence of an SMS provider.
     Retailer OTP request in production MUST raise HTTP 503 even if SMS_PROVIDER_CONFIGURED is True.
@@ -174,12 +176,13 @@ def test_production_guard_rejects_otp_without_real_provider(monkeypatch):
 
     monkeypatch.setattr(config.settings, "ENVIRONMENT", "production")
     monkeypatch.setattr(config.settings, "DEMO_MODE", False)
+    monkeypatch.setattr(config.settings, "SMS_PROVIDER", "disabled")
     monkeypatch.setattr(config.settings, "SMS_PROVIDER_CONFIGURED", True)
 
     db = SessionLocal()
     try:
         with pytest.raises(HTTPException) as exc_info:
-            AuthService.request_otp(db, "9876543210")
+            await AuthService.request_otp(db, "9876543210")
         assert exc_info.value.status_code == 503
         assert "Production SMS provider is not implemented" in exc_info.value.detail
     finally:

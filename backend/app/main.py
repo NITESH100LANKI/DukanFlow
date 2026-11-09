@@ -2,6 +2,7 @@
 FastAPI application factory for DukaanFlow.
 """
 
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,8 @@ from app.api.desk_orders import router as desk_orders_router
 from app.api.desk_exports import router as desk_exports_router
 from app.api.ai import router as ai_router
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,6 +29,12 @@ async def lifespan(app: FastAPI):
         if settings.DEMO_MODE:
             raise RuntimeError(
                 "Fatal startup error: DEMO_MODE must be False in production environment."
+            )
+        if not settings.is_sms_configured:
+            logger.warning(
+                "Fast2SMS provider is not fully configured in production. "
+                "Retailer OTP authentication will return HTTP 503 until "
+                "FAST2SMS_API_KEY and FAST2SMS_OTP_ID are configured in environment."
             )
     yield
 

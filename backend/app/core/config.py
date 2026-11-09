@@ -75,10 +75,24 @@ class Settings(BaseSettings):
     GEMINI_USE_INTERACTIONS_API: bool = False
     AI_TIMEOUT_SECONDS: int = 15
 
-    # Retailer OTP & SMS Gateway
+    # Retailer OTP & SMS Gateway (Phase 10: Fast2SMS Smart OTP Provider)
     DEMO_MODE: bool = True              # If True, OTP is fixed "123456" (DEV ONLY; FORBIDDEN IN PROD)
     DEMO_OTP: str = "123456"
-    SMS_PROVIDER_CONFIGURED: bool = False  # Informational flag: SMS provider integration is pending
+    SMS_PROVIDER: str = "disabled"      # "disabled" | "fast2sms"
+    FAST2SMS_API_KEY: str = ""
+    FAST2SMS_OTP_ID: str = ""
+    FAST2SMS_TIMEOUT_SECONDS: float = 10.0
+    FAST2SMS_BASE_URL: str = "https://www.fast2sms.com/dev/otp/send"
+    SMS_PROVIDER_CONFIGURED: bool = False  # Legacy compatibility flag (SMS requires provider=fast2sms + key + otp_id)
+
+    @property
+    def is_sms_configured(self) -> bool:
+        """True only when Fast2SMS provider is chosen and both API key and OTP ID are present."""
+        return (
+            self.SMS_PROVIDER == "fast2sms"
+            and bool(self.FAST2SMS_API_KEY and self.FAST2SMS_API_KEY.strip())
+            and bool(self.FAST2SMS_OTP_ID and self.FAST2SMS_OTP_ID.strip())
+        )
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

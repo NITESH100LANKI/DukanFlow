@@ -450,11 +450,22 @@ alembic downgrade 4e7f793b510a
 
 The following items must be resolved before conducting commercial transactions:
 
-1. **SMS Gateway Integration for Retailer OTP**:
+1. **SMS Gateway Integration for Retailer OTP (Phase 10: Fast2SMS Smart OTP Provider)**:
+   - **Status**: Implemented via `Fast2SMSProvider` (`POST https://www.fast2sms.com/dev/otp/send`).
    - `DEMO_MODE=true` is strictly prohibited in production (`AuthService.request_otp` rejects with HTTP 500; startup halts with `RuntimeError`).
-   - Retailer OTP login is strictly disabled in production pending real SMS provider integration.
-   - A commercial SMS provider (Fast2SMS, Twilio, or Gupshup) must be implemented, tested, and configured before retailer OTP can function.
-   - Setting a configuration flag alone cannot bypass the absence of an SMS provider.
+   - **Backend Verification**: DukaanFlow generates the cryptographically secure 6-digit OTP in the backend, hashes it with bcrypt into `OTPRecord`, and passes it directly to Fast2SMS Smart OTP (`otp` payload field). OTP verification remains 100% on DukaanFlow's backend.
+   - **Render Dashboard Configuration**:
+     Configure the following environment variables in `Render Dashboard -> dukaanflow-api -> Environment`:
+     - `SMS_PROVIDER=fast2sms`
+     - `FAST2SMS_API_KEY=<YOUR_FAST2SMS_API_KEY>` (from Fast2SMS Console -> Dev API)
+     - `FAST2SMS_OTP_ID=<YOUR_APPROVED_OTP_TEMPLATE_ID>` (approved DLT Template ID)
+     - `FAST2SMS_TIMEOUT_SECONDS=10.0`
+   - **DLT Prerequisites**:
+     1. Commercial Principal Entity registration on an Indian Telecom DLT portal (e.g. Jio, Airtel, VilPower).
+     2. 6-character Header (Sender ID) approved and mapped to Fast2SMS.
+     3. Fast2SMS Smart OTP Content Template ID approved with OTP variable (`{#var#}`).
+     4. Sufficient prepaid Fast2SMS wallet balance.
+   - **Production Guardrails**: Retailer OTP login strictly returns HTTP 503 until `FAST2SMS_API_KEY` and `FAST2SMS_OTP_ID` are set. Setting a boolean flag alone cannot enable SMS delivery without valid credentials.
 2. **Client Tally Accounting Schema Confirmation**:
    - **Generic Accounting CSV Export — Tally integration pending client specification.**
    - DukaanFlow exports generic accounting CSV files with complete order, line, financial snapshot, and export batch metadata.

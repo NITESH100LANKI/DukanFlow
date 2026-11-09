@@ -3,7 +3,9 @@ Modular Authentication Service implementing OTP generation & verification,
 password authentication, token rotation, and revocation.
 """
 
+import logging
 import random
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 from fastapi import HTTPException, status
@@ -30,16 +32,30 @@ from app.schemas.auth import (
     RetailerInfo,
     DeskUserInfo,
 )
+from app.services.sms_provider import (
+    Fast2SMSProvider,
+    SMSProviderError,
+    SMSProviderConfigurationError,
+    SMSTimeoutError,
+    SMSDeliveryError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
     """Authentication and token lifecycle management service."""
 
     @staticmethod
-    def request_otp(db: Session, mobile: str) -> dict:
+    async def request_otp(
+        db: Session,
+        mobile: str,
+        provider: Optional[Fast2SMSProvider] = None,
+    ) -> dict:
         """
         Generates and stores a hashed OTP for retailer mobile login.
         Enforces 10-minute rate limit (max 3 requests per mobile).
+        Dispatches OTP via Fast2SMS Smart OTP provider when configured.
         """
         # Verify that retailer exists and is active
         stmt = select(Retailer).where(
@@ -74,22 +90,50 @@ class AuthService:
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Configuration error: DEMO_MODE must be disabled in production.",
                 )
-            # A boolean flag cannot bypass the absence of a real SMS provider.
-            # Retailer OTP login remains strictly disabled in production until an actual
-            # SMS gateway provider (e.g. Fast2SMS, Twilio, Gupshup) is implemented and configured.
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=(
-                    "Production SMS provider is not implemented. Retailer OTP authentication is "
-                    "disabled until a real SMS delivery integration exists and is configured."
-                ),
-            )
+            # A boolean flag alone cannot bypass the absence of a real SMS provider.
+            if settings.SMS_PROVIDER != "fast2sms":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=(
+                        "Production SMS provider is not implemented. Retailer OTP authentication is "
+                        "disabled until a real SMS delivery integration exists and is configured."
+                    ),
+                )
+            if not settings.is_sms_configured:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=(
+                        "Fast2SMS credentials or OTP template ID are missing. "
+                        "Retailer OTP authentication is unavailable."
+                    ),
+                )
 
-        # Generate OTP (fixed demo OTP or 6-digit random)
+        # Generate OTP (fixed demo OTP or cryptographically secure 6-digit random)
         if settings.DEMO_MODE:
             plain_otp = settings.DEMO_OTP
         else:
-            plain_otp = f"{random.randint(100000, 999999)}"
+            plain_otp = f"{secrets.randbelow(900000) + 100000}"
+
+        # If SMS provider is configured, send the plain OTP via Fast2SMS BEFORE committing
+        if settings.SMS_PROVIDER == "fast2sms":
+            active_provider = provider or Fast2SMSProvider()
+            try:
+                await active_provider.send_otp(mobile=mobile, otp=plain_otp)
+            except SMSProviderConfigurationError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"SMS gateway configuration error: {str(exc)}",
+                ) from exc
+            except SMSTimeoutError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="SMS gateway timed out. Please try again shortly.",
+                ) from exc
+            except SMSDeliveryError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"SMS gateway delivery failure: {str(exc)}",
+                ) from exc
 
         hashed_code = hash_otp(plain_otp)
         expires_at = now + timedelta(minutes=10)

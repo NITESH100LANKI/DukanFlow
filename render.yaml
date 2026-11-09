@@ -42,8 +42,14 @@ services:
         value: "5"
       - key: DEMO_MODE
         value: "false"
+      - key: SMS_PROVIDER
+        value: "fast2sms"
+      - key: FAST2SMS_API_KEY
+        sync: false  # Must be set manually in Render Dashboard -> Environment (Dev API key)
+      - key: FAST2SMS_OTP_ID
+        sync: false  # Must be set manually in Render Dashboard -> Environment (Approved DLT Template ID)
       - key: SMS_PROVIDER_CONFIGURED
-        value: "false"  # Informational: Retailer login disabled until real SMS provider is integrated
+        value: "false"  # Legacy compatibility flag
       - key: GEMINI_API_KEY
         sync: false  # Must be set manually in Render Dashboard secrets (Text-only Hindi/Hinglish/English)
       - key: GEMINI_MODEL
