@@ -69,3 +69,4 @@ def get_product_detail(
             detail=f"Product with SKU '{sku}' not found or inactive",
         )
     return product
+

@@ -143,3 +143,4 @@ def seed_catalogue() -> None:
 
 if __name__ == "__main__":
     seed_catalogue()
+

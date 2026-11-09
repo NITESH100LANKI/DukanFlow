@@ -254,3 +254,4 @@ export const ProductCataloguePage: React.FC = () => {
 };
 
 export default ProductCataloguePage;
+

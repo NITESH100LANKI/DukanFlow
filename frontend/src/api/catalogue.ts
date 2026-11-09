@@ -71,3 +71,4 @@ export const getCategories = async (): Promise<string[]> => {
   const response = await apiClient.get<string[]>('/catalogue/categories');
   return response.data;
 };
+

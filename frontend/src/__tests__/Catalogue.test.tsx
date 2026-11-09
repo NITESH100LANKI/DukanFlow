@@ -170,6 +170,23 @@ describe('Product Catalogue Frontend Tests', () => {
     expect(orderBtn).toHaveTextContent('Out of Stock');
   });
 
+  it('renders order soon state for in-stock products until cart phase', async () => {
+    render(
+      <MemoryRouter>
+        <ProductCataloguePage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Glucose biscuit 75 g')).toBeInTheDocument();
+    });
+
+    const biscuitCard = screen.getByTestId('product-card-SKU-BS-075');
+    const orderBtn = biscuitCard.querySelector('button[disabled]');
+    expect(orderBtn).not.toBeNull();
+    expect(orderBtn).toHaveTextContent(/Order Soon \(Phase 5\)/i);
+  });
+
   it('opens product detail modal when clicking View Details', async () => {
     render(
       <MemoryRouter>

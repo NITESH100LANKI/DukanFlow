@@ -155,21 +155,21 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           </button>
           <button
             type="button"
-            disabled={isOutOfStock}
-            onClick={onClose}
-            className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
+            disabled
+            className="flex-1 py-3 px-4 rounded-xl text-sm font-bold bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed select-none"
+            title={
               isOutOfStock
-                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                : 'bg-primary-600 hover:bg-primary-700 text-white shadow-sm'
-            }`}
+                ? 'Product is out of stock'
+                : 'Shopping cart and order placement will be implemented in Phase 5'
+            }
           >
             {isOutOfStock
               ? language === 'hi'
-                ? 'स्टॉक समाप्त'
+                ? 'स्टॉक समाप्त (Out of Stock)'
                 : 'Out of Stock'
               : language === 'hi'
-              ? 'ऑर्डर में जोड़ें'
-              : 'Add to Order'}
+              ? 'ऑर्डरिंग जल्द उपलब्ध (Phase 5)'
+              : 'Ordering Available Soon (Phase 5)'}
           </button>
         </div>
       </div>

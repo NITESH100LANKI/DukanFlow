@@ -155,3 +155,4 @@ class CatalogueService:
         )
         results = db.execute(stmt).scalars().all()
         return [c for c in results if c]
+

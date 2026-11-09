@@ -144,3 +144,4 @@ class Scheme(Base):
             pct = int(self.discount_pct) if self.discount_pct and self.discount_pct % 1 == 0 else self.discount_pct
             return f"{pct}% discount on {self.min_qty} or more cases"
         return "Promotional scheme"
+

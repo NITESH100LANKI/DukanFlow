@@ -38,3 +38,4 @@ export const StockStatusBadge: React.FC<StockStatusBadgeProps> = ({
 };
 
 export default StockStatusBadge;
+

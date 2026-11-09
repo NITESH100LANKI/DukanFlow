@@ -36,3 +36,4 @@ export const SchemeBadge: React.FC<SchemeBadgeProps> = ({ scheme, language = 'en
 };
 
 export default SchemeBadge;
+

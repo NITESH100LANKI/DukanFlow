@@ -98,38 +98,39 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       </div>
 
       {/* Action Footer */}
-      <div className="pt-3 border-t border-gray-100 flex gap-2">
+      <div className="pt-3 border-t border-gray-100 flex items-center gap-2">
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             onSelect(product);
           }}
-          className="flex-1 py-2.5 px-3 border border-gray-300 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+          className="flex-1 py-2.5 px-3 bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-200 rounded-xl text-xs font-bold transition-colors text-center"
         >
-          {language === 'hi' ? 'विवरण देखें (Details)' : 'View Details'}
+          {language === 'hi' ? 'विवरण देखें (View Details)' : 'View Details'} &rarr;
         </button>
 
         <button
           type="button"
-          disabled={isOutOfStock}
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect(product);
-          }}
-          className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-colors ${
+          disabled
+          className="py-2.5 px-3 rounded-xl text-xs font-semibold bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed select-none whitespace-nowrap"
+          title={
             isOutOfStock
-              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              : 'bg-primary-600 hover:bg-primary-700 text-white shadow-xs'
-          }`}
+              ? language === 'hi'
+                ? 'स्टॉक उपलब्ध नहीं है'
+                : 'Product is out of stock'
+              : language === 'hi'
+              ? 'ऑर्डरिंग एवं कार्ट सुविधा फेज 5 में उपलब्ध होगी'
+              : 'Cart & ordering will be enabled in Phase 5'
+          }
         >
           {isOutOfStock
             ? language === 'hi'
-              ? 'स्टॉक नहीं है'
+              ? 'स्टॉक नहीं (Out of Stock)'
               : 'Out of Stock'
             : language === 'hi'
-            ? 'ऑर्डर जोड़ें +'
-            : 'Order Cases +'}
+            ? 'ऑर्डर जल्द (Phase 5)'
+            : 'Order Soon (Phase 5)'}
         </button>
       </div>
     </div>
@@ -137,3 +138,4 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 };
 
 export default ProductCard;
+
