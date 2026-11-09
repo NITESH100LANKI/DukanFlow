@@ -16,6 +16,11 @@ from app.models.cart import (
     Cart,
     CartLine,
 )
+from app.models.order import (
+    Order,
+    OrderLine,
+    OrderAuditLog,
+)
 
 __all__ = [
     "Retailer",
@@ -26,4 +31,7 @@ __all__ = [
     "Scheme",
     "Cart",
     "CartLine",
+    "Order",
+    "OrderLine",
+    "OrderAuditLog",
 ]

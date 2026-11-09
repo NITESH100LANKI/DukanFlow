@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export const DeskDashboard: React.FC = () => {
@@ -25,14 +26,19 @@ export const DeskDashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900 mb-2">Order Review & Approval</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Review submitted kirana orders, verify inventory, modify line quantities, and approve.
-          </p>
-          <span className="inline-block text-xs font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded-md">
-            Order Review Workflow
-          </span>
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Order Review & Approval</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Review submitted kirana orders, verify inventory, modify line quantities, and approve dispatch.
+            </p>
+          </div>
+          <Link
+            to="/desk/orders"
+            className="inline-block py-2.5 px-4 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-colors text-center shadow-sm"
+          >
+            Open Order Review Queue &rarr;
+          </Link>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">

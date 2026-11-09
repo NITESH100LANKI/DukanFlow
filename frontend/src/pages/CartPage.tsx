@@ -1,15 +1,20 @@
 import React, { useState } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import { Link, useOutletContext, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { Language } from '../components/LanguageToggle';
+import { placeOrderApi } from '../api/orders';
 
 export const CartPage: React.FC = () => {
   const context = useOutletContext<{ language: Language }>();
   const language = context?.language || 'en';
+  const navigate = useNavigate();
 
   const { cart, loading, error, updateQty, removeLine, clearCart, refreshCart } = useCart();
   const [updatingLineId, setUpdatingLineId] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [orderRemarks, setOrderRemarks] = useState('');
+  const [orderError, setOrderError] = useState<string | null>(null);
 
   const handleQtyChange = async (lineId: string, newQty: number) => {
     if (newQty < 1) return;
@@ -31,6 +36,23 @@ export const CartPage: React.FC = () => {
       console.error(err);
     } finally {
       setUpdatingLineId(null);
+    }
+  };
+
+  const handlePlaceOrder = async () => {
+    if (!cart || cart.lines.length === 0) return;
+    setPlacingOrder(true);
+    setOrderError(null);
+    try {
+      const idempotencyKey = `ord-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const order = await placeOrderApi(orderRemarks.trim() || undefined, idempotencyKey);
+      await refreshCart();
+      navigate(`/orders/${order.id}`);
+    } catch (err: any) {
+      const msg = err.response?.data?.detail?.message || err.response?.data?.detail || err.message || 'Failed to place order';
+      setOrderError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    } finally {
+      setPlacingOrder(false);
     }
   };
 
@@ -321,22 +343,43 @@ export const CartPage: React.FC = () => {
                 </p>
               </div>
 
-              {/* Strict Scope Action CTA */}
+              {/* Order Remarks */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-700">
+                  {language === 'hi' ? 'विशेष निर्देश / रिमार्क्स (वैकल्पिक):' : 'Delivery Remarks (Optional):'}
+                </label>
+                <input
+                  type="text"
+                  value={orderRemarks}
+                  onChange={(e) => setOrderRemarks(e.target.value)}
+                  placeholder={language === 'hi' ? 'उदा. सुबह 10 बजे से पहले डिलीवरी करें' : 'e.g. Deliver before 10 AM'}
+                  className="w-full text-xs p-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Order Error */}
+              {orderError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs">
+                  {orderError}
+                </div>
+              )}
+
+              {/* Place Order CTA */}
               <div className="space-y-2 pt-2">
                 <button
                   type="button"
-                  disabled
-                  className="w-full py-3.5 px-4 rounded-xl text-xs font-bold bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed select-none text-center"
-                  title="Order placement and review workflow will be implemented in Phase 6"
+                  onClick={handlePlaceOrder}
+                  disabled={placingOrder || cart.lines.length === 0}
+                  className="w-full py-3.5 px-4 rounded-xl text-sm font-bold bg-primary-600 hover:bg-primary-700 text-white shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed select-none text-center"
                 >
-                  {language === 'hi'
-                    ? 'ऑर्डर सबमिट करें (फेज 6 में उपलब्ध)'
-                    : 'Place Order (Coming in Phase 6)'}
+                  {placingOrder
+                    ? (language === 'hi' ? 'ऑर्डर प्रोसेस हो रहा है...' : 'Submitting Order...')
+                    : (language === 'hi' ? 'ऑर्डर सबमिट करें (Place Order)' : 'Place Order Now')}
                 </button>
-                <p className="text-[11px] text-gray-400 text-center">
+                <p className="text-[11px] text-gray-500 text-center">
                   {language === 'hi'
-                    ? 'फेज 5: कार्ट एवं स्कीम इंजन पूर्ण। ऑर्डर सबमिशन फेज 6 में जोड़ा जाएगा।'
-                    : 'Phase 5: Cart & Schemes verified. Order submission activates in Phase 6.'}
+                    ? 'ऑर्डर सबमिट होने के बाद ऑर्डर डेस्क द्वारा समीक्षा की जाएगी।'
+                    : 'Order will be sent to the Order Desk for stock review and dispatch approval.'}
                 </p>
               </div>
             </div>

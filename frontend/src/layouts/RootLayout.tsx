@@ -59,18 +59,35 @@ export const RootLayout: React.FC = () => {
                   </Link>
 
                   {user.role === 'retailer' && (
+                    <>
+                      <Link
+                        to="/retailer/cart"
+                        className="relative inline-flex items-center gap-1 text-xs font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 px-3 py-1 rounded-lg transition-colors"
+                        title="Shopping Cart"
+                      >
+                        <span>🛒</span>
+                        <span>{language === 'hi' ? 'कार्ट' : 'Cart'}</span>
+                        {totalCasesCount > 0 && (
+                          <span className="ml-1 inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-black rounded-full bg-primary-600 text-white">
+                            {totalCasesCount}
+                          </span>
+                        )}
+                      </Link>
+                      <Link
+                        to="/orders"
+                        className="text-xs font-bold text-gray-700 hover:text-primary-600 transition-colors"
+                      >
+                        {language === 'hi' ? 'मेरे ऑर्डर्स' : 'My Orders'}
+                      </Link>
+                    </>
+                  )}
+
+                  {user.role === 'order_desk' && (
                     <Link
-                      to="/retailer/cart"
-                      className="relative inline-flex items-center gap-1 text-xs font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 px-3 py-1 rounded-lg transition-colors"
-                      title="Shopping Cart"
+                      to="/desk/orders"
+                      className="text-xs font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 px-3 py-1 rounded-lg transition-colors"
                     >
-                      <span>🛒</span>
-                      <span>{language === 'hi' ? 'कार्ट' : 'Cart'}</span>
-                      {totalCasesCount > 0 && (
-                        <span className="ml-1 inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-black rounded-full bg-primary-600 text-white">
-                          {totalCasesCount}
-                        </span>
-                      )}
+                      {language === 'hi' ? 'ऑर्डर कतार' : 'Order Queue'}
                     </Link>
                   )}
 
