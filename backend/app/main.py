@@ -1,5 +1,5 @@
 """
-FastAPI application factory.
+FastAPI application factory for DukaanFlow.
 """
 
 from fastapi import FastAPI
@@ -21,20 +21,21 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None,
 )
 
-# CORS — allow the Vite dev server and Vercel frontend
+# CORS configuration supporting development, Vercel preview deploys, and custom production domains
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",    # Vite dev server
-        "http://localhost:3000",    # Alternative dev port
-        # Add Vercel production URL here before deploying
-    ],
-    allow_credentials=True,         # Required for cookies
-    allow_methods=["*"],
+    allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
+    allow_credentials=True,         # Required for HttpOnly refresh cookies
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["X-Checksum-SHA256", "Content-Disposition"],
 )
 
-# Routers
+# Root health endpoints (for platform probes: Render, AWS, Kubernetes)
+app.include_router(health_router)
+
+# Versioned API v1 routers
 app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(catalogue_router, prefix=settings.API_V1_PREFIX)
@@ -43,4 +44,3 @@ app.include_router(orders_router, prefix=settings.API_V1_PREFIX)
 app.include_router(desk_orders_router, prefix=settings.API_V1_PREFIX)
 app.include_router(desk_exports_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ai_router, prefix=settings.API_V1_PREFIX)
-

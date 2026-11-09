@@ -1,0 +1,56 @@
+# DukaanFlow Render Blueprint Specification
+# Infrastructure as Code for Render Web Service + Managed PostgreSQL
+
+services:
+  - type: web
+    name: dukaanflow-api
+    runtime: python
+    rootDir: backend
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dukaanflow-postgres
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "15"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: "lax"
+      - key: CORS_ORIGINS
+        value: "https://dukaanflow.vercel.app"
+      - key: CORS_ORIGIN_REGEX
+        value: "^https://.*dukaanflow.*\\.vercel\\.app$"
+      - key: DEMO_MODE
+        value: "false"
+      - key: SMS_PROVIDER_CONFIGURED
+        value: "false"
+      - key: GEMINI_API_KEY
+        sync: false  # Must be set manually in Render Dashboard secrets
+      - key: GEMINI_MODEL
+        value: "gemini-3.8-flash"
+      - key: LOG_LEVEL
+        value: "INFO"
+
+databases:
+  - name: dukaanflow-postgres
+    databaseName: dukaanflow
+    user: dukaanflow_user
+    plan: starter
+    region: oregon
+    postgresMajorVersion: "16"

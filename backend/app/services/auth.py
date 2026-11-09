@@ -67,6 +67,19 @@ class AuthService:
                 detail="Too many OTP requests. Please wait a few minutes before trying again.",
             )
 
+        # Safety guard for production environments
+        if settings.ENVIRONMENT == "production" and settings.DEMO_MODE:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Configuration error: DEMO_MODE must be disabled in production.",
+            )
+
+        if settings.ENVIRONMENT == "production" and not settings.SMS_PROVIDER_CONFIGURED:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Production SMS gateway is not configured. Retailer OTP authentication is pending SMS provider integration.",
+            )
+
         # Generate OTP (fixed demo OTP or 6-digit random)
         if settings.DEMO_MODE:
             plain_otp = settings.DEMO_OTP
