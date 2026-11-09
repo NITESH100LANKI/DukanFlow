@@ -55,14 +55,20 @@ class Settings(BaseSettings):
     COOKIE_DOMAIN: Optional[str] = None # None = current host; or ".dukaanflow.in" for subdomains
 
     # CORS
-    # Explicit production-origin allowlist and strictly anchored preview regex
+    # Explicit allowed origins: production domain and local development ports.
+    # Because Vercel reverse-proxies /api/v1/* to Render, browser requests are same-origin.
+    # No broad preview regex is needed or enabled.
     CORS_ORIGINS: List[str] = [
+        "https://dukaanflow.vercel.app",
         "http://localhost:5173",
         "http://localhost:3000",
     ]
-    # Anchored strictly to dukaanflow subdomains on vercel.app (e.g. dukaanflow-preview-123.vercel.app)
-    # Rejects arbitrary attacker domains (e.g. evil-dukaanflow.vercel.app or dukaanflow.attacker.com)
-    CORS_ORIGIN_REGEX: Optional[str] = r"^https:\/\/dukaanflow(-[a-zA-Z0-9_-]+)?\.vercel\.app$"
+    # Set to None: no preview regex trust. Only explicit origins in CORS_ORIGINS are accepted.
+    CORS_ORIGIN_REGEX: Optional[str] = None
+
+    # Process Concurrency & Worker Budget
+    # Exactly 2 workers per instance: 1 instance * 2 workers * (5 pool + 5 overflow) = 20 connections max.
+    WEB_CONCURRENCY: int = 2
 
     # AI (Gemini — Text-based order extraction: Hindi, Hinglish, English)
     GEMINI_API_KEY: str = ""
@@ -87,7 +93,7 @@ class Settings(BaseSettings):
         elif isinstance(v, list):
             origins = v
         else:
-            origins = ["http://localhost:5173", "http://localhost:3000"]
+            origins = ["https://dukaanflow.vercel.app", "http://localhost:5173", "http://localhost:3000"]
 
         # Security requirement: Wildcard '*' cannot be combined with credentials (cookies)
         if "*" in origins:
@@ -96,7 +102,6 @@ class Settings(BaseSettings):
                 "Specify explicit allowed origins."
             )
         return origins
-        return ["http://localhost:5173", "http://localhost:3000"]
 
     @field_validator("COOKIE_SECURE", mode="before")
     @classmethod

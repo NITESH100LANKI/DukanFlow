@@ -128,7 +128,7 @@ The repository includes `frontend/vercel.json` pre-configured for both client ro
    - **Runtime**: `Python 3` (or `Docker` using `backend/Dockerfile`).
    - **Build Command**: `pip install -r requirements.txt`
    - **Pre-Deploy Command**: `alembic upgrade head`
-   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2`
    - **Plan**: `Starter` ($7/mo) or higher (ensures persistent execution without cold starts).
 
 ### 3.2 Dynamic Port Binding Verification
@@ -199,6 +199,7 @@ $$\text{Max Application Connections} = 1 \times 2 \times (5 + 5) = 20 \text{ con
 | `ENVIRONMENT` | `production` | **YES** | Activates production security guards, cookie flags, and strict error handlers. |
 | `DEBUG` | `false` | **YES** | Disables detailed stack traces and debugging endpoints. |
 | `DATABASE_URL` | `postgresql+psycopg2://...` | **YES** | Internal connection string injected automatically by Render. |
+| `WEB_CONCURRENCY` | `2` | NO | Uvicorn worker count (default 2). 1 instance * 2 workers = 20 DB connections. |
 | `DB_POOL_SIZE` | `5` | NO | SQLAlchemy base pool size per worker (default 5). |
 | `DB_MAX_OVERFLOW` | `5` | NO | SQLAlchemy maximum temporary overflow connections (default 5). |
 | `DB_POOL_TIMEOUT` | `30` | NO | Seconds to wait before timing out on pool exhaustion (default 30). |
@@ -210,8 +211,8 @@ $$\text{Max Application Connections} = 1 \times 2 \times (5 + 5) = 20 \text{ con
 | `COOKIE_SECURE` | `true` | **YES** | Enforces `Secure` flag on refresh cookies (browsers send only over HTTPS). |
 | `COOKIE_SAMESITE` | `lax` | **YES** | `lax` for Solution A (same-origin proxy); `none` for cross-site subdomains. |
 | `COOKIE_DOMAIN` | Empty string / `null` | NO | Leave blank for proxy; set to `.dukaanflow.in` if using custom shared apex. |
-| `CORS_ORIGINS` | `https://dukaanflow.vercel.app` | **YES** | Explicit allowed origins. Wildcard `*` is strictly forbidden with credentials. |
-| `CORS_ORIGIN_REGEX` | `^https:\/\/dukaanflow(-[a-zA-Z0-9_-]+)?\.vercel\.app$` | NO | Strictly anchored regex allowing only DukaanFlow preview subdomains. |
+| `CORS_ORIGINS` | `https://dukaanflow.vercel.app` | **YES** | Explicit allowed origins (production and optional staging). No wildcard '*'. |
+| `CORS_ORIGIN_REGEX` | Empty / `null` | NO | Disabled by default. Same-origin proxy eliminates need for preview regex. |
 | `GEMINI_API_KEY` | `AIzaSy...` | **YES** | Gemini key for text extraction (Hindi/Hinglish/En). Never expose to client! |
 | `GEMINI_MODEL` | `gemini-3.8-flash` | **YES** | Standard high-efficiency production model for extraction. |
 | `GEMINI_USE_INTERACTIONS_API` | `false` | **YES** | Set `true` if transitioning to direct Interactions API gateway. |
@@ -246,13 +247,12 @@ Vercel frontend (`*.vercel.app`) and Render backend (`*.onrender.com`) have diff
 - **Cookie Mechanics**: The refresh token cookie is set for domain `dukaanflow.vercel.app` with `SameSite=Lax` and `Secure=True`. To the browser, this is a 100% first-party cookie. No cross-site tracking protections are triggered.
 - **CORS Requirements**: No complex cross-origin headers are needed between browser and backend.
 
-### 6.2 Restricted CORS Allowlist & Preview Regex
-For direct cross-origin API calls (e.g., local development or preview environments):
-1. **Explicit Production Origin:** `CORS_ORIGINS` explicitly whitelists `https://dukaanflow.vercel.app`.
-2. **Strictly Anchored Preview Regex:** `CORS_ORIGIN_REGEX=^https:\/\/dukaanflow(-[a-zA-Z0-9_-]+)?\.vercel\.app$`
-   - Matches only subdomains belonging to the DukaanFlow Vercel deployment (e.g., `https://dukaanflow-git-feat-xyz.vercel.app`).
-   - Strictly rejects third-party attacker domains (e.g., `https://evil-dukaanflow.vercel.app` or `https://dukaanflow.phish.com`).
-3. **No Wildcard Credentials:** Pydantic validators strictly prohibit combining wildcard `*` with `allow_credentials=True`.
+### 6.2 Explicit CORS Allowlist & Zero Unnecessary Preview Trust
+Because the Vercel edge reverse-proxy forwards all `/api/v1/*` requests directly to Render, browser requests operate completely within the same origin (`dukaanflow.vercel.app`), rendering direct cross-origin requests from preview domains unnecessary.
+1. **Explicit Production Origin:** `CORS_ORIGINS` explicitly whitelists the production origin (`https://dukaanflow.vercel.app`) and local development ports.
+2. **Explicit Staging Origins:** If a separate staging frontend is deployed, its exact domain (e.g. `https://dukaanflow-staging.vercel.app`) is explicitly added to `CORS_ORIGINS` via environment variable.
+3. **No Broad Preview Regex:** `CORS_ORIGIN_REGEX` is disabled (`None`). Untrusted or arbitrary third-party origins are completely rejected.
+4. **No Wildcard Credentials:** Pydantic validators strictly prohibit combining wildcard `*` with `allow_credentials=True`.
 
 ---
 
@@ -335,8 +335,8 @@ npm run build
 ## 10. Staging / Preview Deployment Strategy
 
 - Every GitHub pull request automatically triggers an isolated Vercel preview deployment (e.g., `https://dukaanflow-git-feat-xyz-team.vercel.app`).
-- The backend CORS middleware includes strictly anchored `CORS_ORIGIN_REGEX=^https:\/\/dukaanflow(-[a-zA-Z0-9_-]+)?\.vercel\.app$`.
-- Preview deployments can securely test API interactions against staging environments without CORS rejections.
+- Vercel preview deployments use the same-origin `/api/v1/*` reverse-proxy to forward API requests.
+- Because browser requests are same-origin to Vercel, no broad preview regex is enabled on the backend, ensuring zero untrusted cross-origin access. If direct cross-origin testing is required for a dedicated staging environment, its exact hostname is explicitly declared in `CORS_ORIGINS`.
 
 ---
 
@@ -404,7 +404,7 @@ pg_restore -v --clean --no-acl --no-owner \
 ### 13.2 Backend Service Crashes on Port Binding
 - **Symptom**: Render deployment logs show `Service failed to bind to port within 10 minutes`.
 - **Root Cause**: Uvicorn is hardcoded to port `8000` instead of reading Render's injected `$PORT`.
-- **Solution**: Verify the start command is `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+- **Solution**: Verify the start command is `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2`.
 
 ### 13.3 Database Connection Pool Exhaustion
 - **Symptom**: Backend logs show `psycopg2.OperationalError: FATAL: remaining connection slots are reserved for non-replication superuser connections`.

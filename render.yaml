@@ -10,7 +10,7 @@ services:
     region: oregon
     buildCommand: pip install -r requirements.txt
     preDeployCommand: alembic upgrade head
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -18,6 +18,8 @@ services:
         value: production
       - key: PYTHON_VERSION
         value: 3.12.3
+      - key: WEB_CONCURRENCY
+        value: "2"
       - key: DATABASE_URL
         fromDatabase:
           name: dukaanflow-postgres
@@ -34,8 +36,6 @@ services:
         value: "lax"
       - key: CORS_ORIGINS
         value: "https://dukaanflow.vercel.app"
-      - key: CORS_ORIGIN_REGEX
-        value: "^https:\\/\\/dukaanflow(-[a-zA-Z0-9_-]+)?\\.vercel\\.app$"
       - key: DB_POOL_SIZE
         value: "5"
       - key: DB_MAX_OVERFLOW

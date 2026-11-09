@@ -2,7 +2,6 @@
 Unit and integration tests for Phase 9: Deployment Configuration, CORS Hardening, and Production Guards.
 """
 
-import re
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -36,46 +35,45 @@ def test_cors_wildcard_forbidden_with_credentials():
     assert "CORS wildcard '*' is strictly forbidden" in str(exc_info2.value)
 
 
-def test_cors_preview_regex_restricted():
+def test_cors_preview_regex_disabled_by_default():
     """
-    Verify strictly anchored regex allows DukaanFlow Vercel domains while
-    rejecting phishing/attacker domains containing 'dukaanflow'.
+    Because Vercel edge reverse-proxy handles API routing same-origin,
+    CORS_ORIGIN_REGEX must be None by default to reject all arbitrary origins.
     """
     settings = Settings()
-    regex = re.compile(settings.CORS_ORIGIN_REGEX)
-
-    # Valid origins
-    assert regex.match("https://dukaanflow.vercel.app")
-    assert regex.match("https://dukaanflow-git-feat-team.vercel.app")
-    assert regex.match("https://dukaanflow-preview-123.vercel.app")
-    assert regex.match("https://dukaanflow-a1b2c3d4.vercel.app")
-
-    # Malicious / Attacker origins (MUST BE REJECTED)
-    assert not regex.match("https://evil-dukaanflow.vercel.app")
-    assert not regex.match("https://attacker-dukaanflow.vercel.app")
-    assert not regex.match("https://notdukaanflow.vercel.app")
-    assert not regex.match("https://dukaanflow.attacker.com")
-    assert not regex.match("https://dukaanflow.vercel.app.phishing.com")
-    assert not regex.match("http://dukaanflow.vercel.app")  # Plain HTTP rejected
+    assert settings.CORS_ORIGIN_REGEX is None
 
 
-def test_database_connection_pool_budget_defaults():
-    """Verify conservative database connection pool defaults and configurability."""
-    s = Settings(
+def test_database_connection_pool_budget_and_workers():
+    """
+    Verify conservative database connection pool defaults, worker concurrency,
+    and total calculated connection budget.
+    """
+    s_default = Settings()
+    assert s_default.WEB_CONCURRENCY == 2
+    assert s_default.DB_POOL_SIZE == 5
+    assert s_default.DB_MAX_OVERFLOW == 5
+    assert s_default.DB_POOL_TIMEOUT == 30
+    assert s_default.DB_POOL_RECYCLE == 1800
+
+    # Total connection budget calculation:
+    # 1 instance * 2 workers * (5 pool + 5 overflow) = 20 maximum connections
+    total_connections = 1 * s_default.WEB_CONCURRENCY * (s_default.DB_POOL_SIZE + s_default.DB_MAX_OVERFLOW)
+    assert total_connections == 20
+
+    # Configurable override check
+    s_custom = Settings(
+        WEB_CONCURRENCY=3,
         DB_POOL_SIZE=8,
         DB_MAX_OVERFLOW=4,
         DB_POOL_TIMEOUT=45,
         DB_POOL_RECYCLE=3600,
     )
-    assert s.DB_POOL_SIZE == 8
-    assert s.DB_MAX_OVERFLOW == 4
-    assert s.DB_POOL_TIMEOUT == 45
-    assert s.DB_POOL_RECYCLE == 3600
-
-    # Default conservative sizing: 5 pool + 5 overflow = 10 per worker
-    s_default = Settings()
-    assert s_default.DB_POOL_SIZE == 5
-    assert s_default.DB_MAX_OVERFLOW == 5
+    assert s_custom.WEB_CONCURRENCY == 3
+    assert s_custom.DB_POOL_SIZE == 8
+    assert s_custom.DB_MAX_OVERFLOW == 4
+    assert s_custom.DB_POOL_TIMEOUT == 45
+    assert s_custom.DB_POOL_RECYCLE == 3600
 
 
 def test_cookie_secure_validator():
@@ -111,7 +109,6 @@ async def test_production_startup_guard_succeeds_when_demo_mode_false(monkeypatc
     monkeypatch.setattr(config.settings, "DEMO_MODE", False)
 
     async with lifespan(app):
-        # Startup succeeded
         assert config.settings.ENVIRONMENT == "production"
         assert config.settings.DEMO_MODE is False
 
@@ -157,7 +154,10 @@ def test_production_guard_rejects_otp_without_real_provider(monkeypatch):
 
 
 def test_cors_middleware_behavior_on_request():
-    """Verify CORS middleware response headers across production, preview, and attacker origins."""
+    """
+    Verify CORS middleware response headers across explicit production origin,
+    unlisted preview origin (which must use same-origin proxy), and attacker origins.
+    """
     with TestClient(app) as client:
         # 1. Allowed Production Origin
         res_prod = client.get("/health", headers={"Origin": "https://dukaanflow.vercel.app"})
@@ -165,15 +165,12 @@ def test_cors_middleware_behavior_on_request():
         assert res_prod.headers.get("access-control-allow-origin") == "https://dukaanflow.vercel.app"
         assert res_prod.headers.get("access-control-allow-credentials") == "true"
 
-        # 2. Allowed DukaanFlow Preview Origin (via regex)
+        # 2. Unlisted Preview Origin (rejected from direct CORS — must use same-origin Vercel proxy)
         res_preview = client.get(
             "/health", headers={"Origin": "https://dukaanflow-git-feat-xyz.vercel.app"}
         )
         assert res_preview.status_code == 200
-        assert (
-            res_preview.headers.get("access-control-allow-origin")
-            == "https://dukaanflow-git-feat-xyz.vercel.app"
-        )
+        assert "access-control-allow-origin" not in res_preview.headers
 
         # 3. Disallowed Attacker Origin (must NOT receive CORS headers)
         res_attacker = client.get(

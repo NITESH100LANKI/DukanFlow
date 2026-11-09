@@ -6,7 +6,8 @@ FROM python:3.12-slim AS base
 # Prevent Python from writing .pyc files and enable unbuffered logging
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8000
+    PORT=8000 \
+    WEB_CONCURRENCY=2
 
 WORKDIR /app
 
@@ -42,5 +43,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:${PORT}/live || exit 1
 
-# Start Uvicorn bound to 0.0.0.0 and dynamically bind to $PORT
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# Start Uvicorn bound to 0.0.0.0 and dynamically bind to $PORT with exactly 2 workers
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY:-2}"]
