@@ -33,8 +33,12 @@ def db_session():
 @pytest.fixture
 def seeded_users(db_session: Session):
     """Creates isolated test Retailer and Order Desk records."""
-    test_mobile = f"98765{str(uuid.uuid4().int)[:5]}"
-    test_email = f"desk_{str(uuid.uuid4().hex)[:6]}@dukaanflow.in"
+    import secrets
+    while True:
+        test_mobile = f"9{secrets.randbelow(900000000) + 100000000}"
+        if not db_session.execute(select(Retailer).where(Retailer.mobile == test_mobile)).scalar_one_or_none():
+            break
+    test_email = f"desk_{str(uuid.uuid4().hex)[:8]}@dukaanflow.in"
 
     retailer = Retailer(
         mobile=test_mobile,

@@ -12,6 +12,10 @@ from app.models.catalogue import (
     Product,
     Scheme,
 )
+from app.models.cart import (
+    Cart,
+    CartLine,
+)
 
 __all__ = [
     "Retailer",
@@ -20,4 +24,6 @@ __all__ = [
     "RefreshTokenBlocklist",
     "Product",
     "Scheme",
+    "Cart",
+    "CartLine",
 ]

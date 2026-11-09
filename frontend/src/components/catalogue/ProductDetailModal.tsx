@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Product } from '../../api/catalogue';
 import StockStatusBadge from './StockStatusBadge';
 import SchemeBadge from './SchemeBadge';
+import { useCart } from '../../context/CartContext';
 
 interface ProductDetailModalProps {
   product: Product | null;
@@ -14,11 +15,35 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onClose,
   language = 'en',
 }) => {
+  const { addToCart } = useCart();
+  const [qty, setQty] = useState(1);
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   if (!product) return null;
 
   const packPriceFormatted = Number(product.dealer_price_per_pack).toFixed(2);
   const casePriceFormatted = Number(product.dealer_price_per_case).toFixed(2);
   const isOutOfStock = product.stock_cases <= 0;
+
+  const handleAdd = async () => {
+    if (isOutOfStock || adding) return;
+    setAdding(true);
+    setErrorMsg(null);
+    try {
+      await addToCart(product.id, qty);
+      setAdded(true);
+      setTimeout(() => {
+        setAdded(false);
+        onClose();
+      }, 1200);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error adding product to cart');
+    } finally {
+      setAdding(false);
+    }
+  };
 
   return (
     <div
@@ -144,6 +169,53 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           </div>
         )}
 
+        {/* Quantity Selector (when in stock) */}
+        {!isOutOfStock && (
+          <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 mb-5 flex items-center justify-between">
+            <div>
+              <span className="text-xs font-bold text-gray-700 block">
+                {language === 'hi' ? 'ऑर्डर पेटी संख्या' : 'Wholesale Cases to Order'}
+              </span>
+              <span className="text-[11px] text-gray-500">
+                {qty} {language === 'hi' ? 'पेटी' : 'cases'} = ₹{(Number(casePriceFormatted) * qty).toFixed(2)}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setQty((q) => Math.max(1, q - 1))}
+                className="w-9 h-9 rounded-xl bg-white border border-gray-300 font-bold text-base text-gray-700 hover:bg-gray-100 flex items-center justify-center transition-colors"
+                title="Decrease quantity"
+              >
+                -
+              </button>
+              <input
+                type="number"
+                min="1"
+                max={product.stock_cases}
+                value={qty}
+                onChange={(e) => setQty(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-14 h-9 text-center font-bold text-sm bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500"
+              />
+              <button
+                type="button"
+                onClick={() => setQty((q) => Math.min(product.stock_cases, q + 1))}
+                className="w-9 h-9 rounded-xl bg-white border border-gray-300 font-bold text-base text-gray-700 hover:bg-gray-100 flex items-center justify-center transition-colors"
+                title="Increase quantity"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        )}
+
+        {errorMsg && (
+          <div className="bg-red-50 text-red-700 p-3 rounded-xl text-xs font-semibold mb-4 text-center">
+            {errorMsg}
+          </div>
+        )}
+
         {/* Modal Actions */}
         <div className="flex gap-3">
           <button
@@ -155,21 +227,28 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           </button>
           <button
             type="button"
-            disabled
-            className="flex-1 py-3 px-4 rounded-xl text-sm font-bold bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed select-none"
-            title={
+            disabled={isOutOfStock || adding}
+            onClick={handleAdd}
+            className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-all select-none flex items-center justify-center gap-2 ${
               isOutOfStock
-                ? 'Product is out of stock'
-                : 'Shopping cart and order placement will be implemented in Phase 5'
-            }
+                ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                : added
+                ? 'bg-emerald-600 text-white'
+                : 'bg-primary-600 hover:bg-primary-700 text-white shadow-xs'
+            }`}
           >
-            {isOutOfStock
-              ? language === 'hi'
-                ? 'स्टॉक समाप्त (Out of Stock)'
-                : 'Out of Stock'
-              : language === 'hi'
-              ? 'ऑर्डरिंग जल्द उपलब्ध (Phase 5)'
-              : 'Ordering Available Soon (Phase 5)'}
+            {isOutOfStock ? (
+              language === 'hi' ? 'स्टॉक समाप्त' : 'Out of Stock'
+            ) : adding ? (
+              'Adding...'
+            ) : added ? (
+              <>
+                <span>✓</span>
+                <span>{language === 'hi' ? 'कार्ट में जोड़ा गया!' : 'Added to Cart!'}</span>
+              </>
+            ) : (
+              language === 'hi' ? `कार्ट में जोड़ें (${qty} पेटी)` : `Add to Cart (${qty} Cases)`
+            )}
           </button>
         </div>
       </div>

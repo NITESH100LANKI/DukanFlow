@@ -18,7 +18,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Module-level token holder for Axios interceptors
 let inMemoryToken: string | null = null;

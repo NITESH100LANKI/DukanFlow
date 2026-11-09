@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Product } from '../../api/catalogue';
 import StockStatusBadge from './StockStatusBadge';
 import SchemeBadge from './SchemeBadge';
+import { useCart } from '../../context/CartContext';
 
 interface ProductCardProps {
   product: Product;
@@ -14,9 +15,32 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onSelect,
   language = 'en',
 }) => {
+  const { addToCart } = useCart();
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
   const isOutOfStock = product.stock_cases <= 0;
   const packPriceFormatted = Number(product.dealer_price_per_pack).toFixed(2);
   const casePriceFormatted = Number(product.dealer_price_per_case).toFixed(2);
+
+  const handleAddToCart = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isOutOfStock || adding) return;
+
+    setAdding(true);
+    setAddError(null);
+    try {
+      await addToCart(product.id, 1);
+      setAdded(true);
+      setTimeout(() => setAdded(false), 2000);
+    } catch (err: any) {
+      setAddError(err.message || 'Error adding to cart');
+      setTimeout(() => setAddError(null), 3000);
+    } finally {
+      setAdding(false);
+    }
+  };
 
   return (
     <div
@@ -98,40 +122,59 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       </div>
 
       {/* Action Footer */}
-      <div className="pt-3 border-t border-gray-100 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect(product);
-          }}
-          className="flex-1 py-2.5 px-3 bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-200 rounded-xl text-xs font-bold transition-colors text-center"
-        >
-          {language === 'hi' ? 'विवरण देखें (View Details)' : 'View Details'} &rarr;
-        </button>
+      <div className="pt-3 border-t border-gray-100 flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(product);
+            }}
+            className="flex-1 py-2.5 px-3 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-xl text-xs font-bold transition-colors text-center"
+          >
+            {language === 'hi' ? 'विवरण देखें' : 'View Details'} &rarr;
+          </button>
 
-        <button
-          type="button"
-          disabled
-          className="py-2.5 px-3 rounded-xl text-xs font-semibold bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed select-none whitespace-nowrap"
-          title={
-            isOutOfStock
-              ? language === 'hi'
-                ? 'स्टॉक उपलब्ध नहीं है'
-                : 'Product is out of stock'
-              : language === 'hi'
-              ? 'ऑर्डरिंग एवं कार्ट सुविधा फेज 5 में उपलब्ध होगी'
-              : 'Cart & ordering will be enabled in Phase 5'
-          }
-        >
-          {isOutOfStock
-            ? language === 'hi'
-              ? 'स्टॉक नहीं (Out of Stock)'
-              : 'Out of Stock'
-            : language === 'hi'
-            ? 'ऑर्डर जल्द (Phase 5)'
-            : 'Order Soon (Phase 5)'}
-        </button>
+          <button
+            type="button"
+            disabled={isOutOfStock || adding}
+            onClick={handleAddToCart}
+            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all select-none whitespace-nowrap flex items-center justify-center gap-1.5 ${
+              isOutOfStock
+                ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                : added
+                ? 'bg-emerald-600 text-white'
+                : 'bg-primary-600 hover:bg-primary-700 text-white shadow-xs'
+            }`}
+            title={
+              isOutOfStock
+                ? language === 'hi'
+                  ? 'स्टॉक उपलब्ध नहीं है'
+                  : 'Product is out of stock'
+                : language === 'hi'
+                ? '1 पेटी कार्ट में जोड़ें'
+                : 'Add 1 case to cart'
+            }
+          >
+            {isOutOfStock ? (
+              language === 'hi' ? 'स्टॉक नहीं' : 'Out of Stock'
+            ) : adding ? (
+              '...'
+            ) : added ? (
+              <>
+                <span>✓</span>
+                <span>{language === 'hi' ? 'जोड़ा गया!' : 'Added!'}</span>
+              </>
+            ) : (
+              language === 'hi' ? 'कार्ट में जोड़ें +' : 'Add to Cart +'
+            )}
+          </button>
+        </div>
+        {addError && (
+          <p className="text-[11px] font-semibold text-red-600 text-center animate-fade-in">
+            {addError}
+          </p>
+        )}
       </div>
     </div>
   );

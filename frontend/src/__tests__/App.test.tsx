@@ -21,6 +21,14 @@ vi.mock('../api/auth', () => ({
   logoutApi: vi.fn(),
 }));
 
+vi.mock('../api/cart', () => ({
+  getCart: vi.fn().mockRejectedValue(new Error('No cart')),
+  addCartLine: vi.fn(),
+  updateCartLineQty: vi.fn(),
+  deleteCartLine: vi.fn(),
+  clearCartApi: vi.fn(),
+}));
+
 describe('App Component', () => {
   it('renders the DukaanFlow brand in header', async () => {
     await act(async () => {

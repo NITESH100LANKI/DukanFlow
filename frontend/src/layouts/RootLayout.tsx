@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { Outlet, Link } from 'react-router-dom';
 import { LanguageToggle, Language } from '../components/LanguageToggle';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 
 export const RootLayout: React.FC = () => {
   const [language, setLanguage] = useState<Language>('en');
   const { user, isAuthenticated, logout } = useAuth();
+  const { totalCasesCount } = useCart();
 
   const titles = {
     en: {
@@ -51,10 +53,27 @@ export const RootLayout: React.FC = () => {
                 <div className="flex items-center space-x-3">
                   <Link
                     to="/retailer/catalogue"
-                    className="text-xs font-bold text-primary-700 bg-primary-50 px-2.5 py-1 rounded-lg hover:bg-primary-100 transition-colors"
+                    className="text-xs font-bold text-gray-700 hover:text-primary-600 transition-colors"
                   >
                     {language === 'hi' ? 'कैटलॉग' : 'Catalogue'}
                   </Link>
+
+                  {user.role === 'retailer' && (
+                    <Link
+                      to="/retailer/cart"
+                      className="relative inline-flex items-center gap-1 text-xs font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 px-3 py-1 rounded-lg transition-colors"
+                      title="Shopping Cart"
+                    >
+                      <span>🛒</span>
+                      <span>{language === 'hi' ? 'कार्ट' : 'Cart'}</span>
+                      {totalCasesCount > 0 && (
+                        <span className="ml-1 inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-black rounded-full bg-primary-600 text-white">
+                          {totalCasesCount}
+                        </span>
+                      )}
+                    </Link>
+                  )}
+
                   <Link
                     to={dashboardPath}
                     className="text-xs font-bold text-gray-700 hover:text-primary-600"

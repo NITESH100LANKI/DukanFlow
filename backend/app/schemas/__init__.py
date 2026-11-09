@@ -18,6 +18,13 @@ from app.schemas.catalogue import (
     ProductRead,
     ProductListResponse,
 )
+from app.schemas.cart import (
+    CartRead,
+    CartLineRead,
+    AddCartLineRequest,
+    UpdateCartLineRequest,
+    CartSummary,
+)
 
 __all__ = [
     "RequestOTPRequest",
@@ -32,5 +39,10 @@ __all__ = [
     "SchemeRead",
     "ProductRead",
     "ProductListResponse",
+    "CartRead",
+    "CartLineRead",
+    "AddCartLineRequest",
+    "UpdateCartLineRequest",
+    "CartSummary",
 ]
 

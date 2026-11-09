@@ -4,7 +4,10 @@ import { MemoryRouter } from 'react-router-dom';
 import ProductCataloguePage from '../pages/ProductCataloguePage';
 import StockStatusBadge from '../components/catalogue/StockStatusBadge';
 import SchemeBadge from '../components/catalogue/SchemeBadge';
+import { CartProvider } from '../context/CartContext';
+import { AuthContext } from '../context/AuthContext';
 import * as catalogueApi from '../api/catalogue';
+import * as cartApi from '../api/cart';
 import { Product } from '../api/catalogue';
 
 const mockProducts: Product[] = [
@@ -90,9 +93,53 @@ vi.mock('../api/catalogue', () => ({
   getCategories: vi.fn(),
 }));
 
+vi.mock('../api/cart', () => ({
+  getCart: vi.fn(),
+  addCartLine: vi.fn(),
+  updateCartLineQty: vi.fn(),
+  deleteCartLine: vi.fn(),
+  clearCartApi: vi.fn(),
+}));
+
+const renderWithProviders = (ui: React.ReactNode) => {
+  return render(
+    <MemoryRouter>
+      <AuthContext.Provider
+        value={{
+          user: { id: 'retailer-1', role: 'retailer', name: 'Test Kirana', identifier: '9876543210' } as any,
+          isAuthenticated: true,
+          isLoading: false,
+          loginWithOtp: vi.fn(),
+          loginWithPassword: vi.fn(),
+          logout: vi.fn(),
+        }}
+      >
+        <CartProvider>{ui}</CartProvider>
+      </AuthContext.Provider>
+    </MemoryRouter>
+  );
+};
+
 describe('Product Catalogue Frontend Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(cartApi.getCart).mockResolvedValue({
+      id: 'cart-1',
+      retailer_id: 'retailer-1',
+      lines: [],
+      summary: {
+        total_cases_paid: 0,
+        total_cases_free: 0,
+        total_cases_fulfilment: 0,
+        gross_total: 0,
+        total_discount: 0,
+        total_benefit_value: 0,
+        net_total: 0,
+        item_count: 0,
+      },
+      created_at: '',
+      updated_at: '',
+    });
     vi.mocked(catalogueApi.getCategories).mockResolvedValue(['Biscuits', 'Detergents', 'Beverages']);
     vi.mocked(catalogueApi.getProducts).mockResolvedValue({
       items: mockProducts,
@@ -104,11 +151,7 @@ describe('Product Catalogue Frontend Tests', () => {
   });
 
   it('renders all three seeded products with correct SKU, name, and pricing', async () => {
-    render(
-      <MemoryRouter>
-        <ProductCataloguePage />
-      </MemoryRouter>
-    );
+    renderWithProviders(<ProductCataloguePage />);
 
     // Should fetch products
     await waitFor(() => {
@@ -153,11 +196,7 @@ describe('Product Catalogue Frontend Tests', () => {
   });
 
   it('disables order button for out-of-stock tea leaf', async () => {
-    render(
-      <MemoryRouter>
-        <ProductCataloguePage />
-      </MemoryRouter>
-    );
+    renderWithProviders(<ProductCataloguePage />);
 
     await waitFor(() => {
       expect(screen.getByText('Tea leaf 250 g')).toBeInTheDocument();
@@ -170,29 +209,21 @@ describe('Product Catalogue Frontend Tests', () => {
     expect(orderBtn).toHaveTextContent('Out of Stock');
   });
 
-  it('renders order soon state for in-stock products until cart phase', async () => {
-    render(
-      <MemoryRouter>
-        <ProductCataloguePage />
-      </MemoryRouter>
-    );
+  it('renders active add to cart button for in-stock products', async () => {
+    renderWithProviders(<ProductCataloguePage />);
 
     await waitFor(() => {
       expect(screen.getByText('Glucose biscuit 75 g')).toBeInTheDocument();
     });
 
     const biscuitCard = screen.getByTestId('product-card-SKU-BS-075');
-    const orderBtn = biscuitCard.querySelector('button[disabled]');
-    expect(orderBtn).not.toBeNull();
-    expect(orderBtn).toHaveTextContent(/Order Soon \(Phase 5\)/i);
+    const addBtn = biscuitCard.querySelector('button.bg-primary-600');
+    expect(addBtn).not.toBeNull();
+    expect(addBtn).toHaveTextContent(/Add to Cart \+/i);
   });
 
   it('opens product detail modal when clicking View Details', async () => {
-    render(
-      <MemoryRouter>
-        <ProductCataloguePage />
-      </MemoryRouter>
-    );
+    renderWithProviders(<ProductCataloguePage />);
 
     await waitFor(() => {
       expect(screen.getByText('Glucose biscuit 75 g')).toBeInTheDocument();
@@ -216,11 +247,7 @@ describe('Product Catalogue Frontend Tests', () => {
   });
 
   it('triggers search filter when typing into SearchBar', async () => {
-    render(
-      <MemoryRouter>
-        <ProductCataloguePage />
-      </MemoryRouter>
-    );
+    renderWithProviders(<ProductCataloguePage />);
 
     const searchInput = screen.getByPlaceholderText(/Search products or SKU/i);
     fireEvent.change(searchInput, { target: { value: 'biscuit' } });
@@ -241,11 +268,7 @@ describe('Product Catalogue Frontend Tests', () => {
       total_pages: 1,
     });
 
-    render(
-      <MemoryRouter>
-        <ProductCataloguePage />
-      </MemoryRouter>
-    );
+    renderWithProviders(<ProductCataloguePage />);
 
     await waitFor(() => {
       expect(screen.getByTestId('catalogue-empty')).toBeInTheDocument();
@@ -258,11 +281,7 @@ describe('Product Catalogue Frontend Tests', () => {
       new Error('Network error')
     );
 
-    render(
-      <MemoryRouter>
-        <ProductCataloguePage />
-      </MemoryRouter>
-    );
+    renderWithProviders(<ProductCataloguePage />);
 
     await waitFor(() => {
       expect(screen.getByText(/Failed to load product catalogue/i)).toBeInTheDocument();

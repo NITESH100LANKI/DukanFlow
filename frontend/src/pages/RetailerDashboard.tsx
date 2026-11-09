@@ -38,12 +38,20 @@ export const RetailerDashboard: React.FC = () => {
               Browse wholesale FMCG products, active schemes (Buy 10 Get 1 Free, 3% discount), and case pricing.
             </p>
           </div>
-          <Link
-            to="/retailer/catalogue"
-            className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-sm font-bold transition-colors shadow-xs"
-          >
-            Open Catalogue (कैटलॉग खोलें) &rarr;
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              to="/retailer/catalogue"
+              className="flex-1 py-2.5 px-3 bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-bold transition-colors text-center shadow-xs"
+            >
+              Browse Catalogue &rarr;
+            </Link>
+            <Link
+              to="/retailer/cart"
+              className="py-2.5 px-4 bg-primary-50 hover:bg-primary-100 text-primary-700 border border-primary-200 rounded-xl text-xs font-bold transition-colors text-center"
+            >
+              🛒 View Cart
+            </Link>
+          </div>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
