@@ -68,19 +68,19 @@ export interface DraftListResponse {
 }
 
 export const createOrderDraftApi = async (raw_text: string): Promise<OrderDraft> => {
-  const response = await apiClient.post<OrderDraft>('/api/v1/ai/order-drafts', { raw_text });
+  const response = await apiClient.post<OrderDraft>('/ai/order-drafts', { raw_text });
   return response.data;
 };
 
 export const listOrderDraftsApi = async (page = 1, pageSize = 20): Promise<DraftListResponse> => {
-  const response = await apiClient.get<DraftListResponse>('/api/v1/ai/order-drafts', {
+  const response = await apiClient.get<DraftListResponse>('/ai/order-drafts', {
     params: { page, page_size: pageSize },
   });
   return response.data;
 };
 
 export const getOrderDraftApi = async (draftId: string): Promise<OrderDraft> => {
-  const response = await apiClient.get<OrderDraft>(`/api/v1/ai/order-drafts/${draftId}`);
+  const response = await apiClient.get<OrderDraft>(`/ai/order-drafts/${draftId}`);
   return response.data;
 };
 
@@ -94,7 +94,7 @@ export const updateDraftLineApi = async (
   }
 ): Promise<OrderDraft> => {
   const response = await apiClient.patch<OrderDraft>(
-    `/api/v1/ai/order-drafts/${draftId}/lines/${lineId}`,
+    `/ai/order-drafts/${draftId}/lines/${lineId}`,
     data
   );
   return response.data;
@@ -105,7 +105,7 @@ export const deleteDraftLineApi = async (
   lineId: string
 ): Promise<OrderDraft> => {
   const response = await apiClient.delete<OrderDraft>(
-    `/api/v1/ai/order-drafts/${draftId}/lines/${lineId}`
+    `/ai/order-drafts/${draftId}/lines/${lineId}`
   );
   return response.data;
 };
@@ -114,7 +114,7 @@ export const confirmDraftToCartApi = async (
   draftId: string
 ): Promise<DraftConfirmResponse> => {
   const response = await apiClient.post<DraftConfirmResponse>(
-    `/api/v1/ai/order-drafts/${draftId}/confirm`
+    `/ai/order-drafts/${draftId}/confirm`
   );
   return response.data;
 };

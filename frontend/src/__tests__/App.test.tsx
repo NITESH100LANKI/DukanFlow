@@ -49,7 +49,7 @@ describe('App Component', () => {
     await act(async () => {
       render(<App />);
     });
-    expect(screen.getByText('Production Ready')).toBeInTheDocument();
+    expect(screen.getByText('DEMO READY')).toBeInTheDocument();
     expect(screen.getByText('Welcome to DukaanFlow')).toBeInTheDocument();
   });
 });
