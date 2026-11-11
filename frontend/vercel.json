@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/api/v1/:path*",
-      "destination": "https://dukaanflow-api.onrender.com/api/v1/:path*"
+      "destination": "https://dukanflow.onrender.com/api/v1/:path*"
     },
     {
       "source": "/(.*)",

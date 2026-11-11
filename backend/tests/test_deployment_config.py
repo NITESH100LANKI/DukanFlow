@@ -266,3 +266,29 @@ def test_cors_development_middleware_behavior():
         res_evil = client.get("/health", headers={"Origin": "https://malicious-site.com"})
         assert res_evil.status_code == 200
         assert "access-control-allow-origin" not in res_evil.headers
+
+
+def test_vercel_proxy_destination_matches_render_service():
+    """
+    Verify frontend/vercel.json rewrites /api/v1/:path* to the live Render backend service
+    (https://dukanflow.onrender.com/api/v1/:path*) without duplicate prefixes.
+    """
+    import json
+    from pathlib import Path
+
+    vercel_json_path = Path(__file__).resolve().parent.parent.parent / "frontend" / "vercel.json"
+    assert vercel_json_path.exists(), f"vercel.json not found at {vercel_json_path}"
+
+    with open(vercel_json_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+
+    rewrites = config.get("rewrites", [])
+    api_rewrite = next((r for r in rewrites if r.get("source") == "/api/v1/:path*"), None)
+    assert api_rewrite is not None, "Missing /api/v1/:path* rewrite in vercel.json"
+
+    expected_destination = "https://dukanflow.onrender.com/api/v1/:path*"
+    assert api_rewrite["destination"] == expected_destination
+
+    # Ensure /api/v1 appears exactly once in the destination URL
+    assert api_rewrite["destination"].count("/api/v1") == 1
+
