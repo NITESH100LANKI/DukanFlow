@@ -13,7 +13,7 @@ export const RootLayout: React.FC = () => {
     en: {
       appName: 'DukaanFlow',
       tagline: 'FMCG Retailer Ordering Platform',
-      badge: 'Phase 2 Initialized',
+      badge: 'Production Ready',
       login: 'Sign In',
       logout: 'Logout',
       dashboard: 'Dashboard',
@@ -21,7 +21,7 @@ export const RootLayout: React.FC = () => {
     hi: {
       appName: 'दुकानफ्लो',
       tagline: 'एफएमसीजी रिटेलर ऑर्डरिंग प्लेटफॉर्म',
-      badge: 'फेज 2 आरंभ',
+      badge: 'सक्रिय (तैयार)',
       login: 'लॉग इन',
       logout: 'लॉग आउट',
       dashboard: 'डैशबोर्ड',

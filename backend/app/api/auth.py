@@ -25,13 +25,14 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 
 def set_refresh_cookie(response: Response, token: str, expires_at: Any) -> None:
     """Sets a secure HttpOnly refresh token cookie on the HTTP response."""
+    cookie_domain = settings.COOKIE_DOMAIN if settings.COOKIE_DOMAIN and settings.COOKIE_DOMAIN.strip() else None
     response.set_cookie(
         key="refresh_token",
         value=token,
         httponly=True,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-        domain=settings.COOKIE_DOMAIN,
+        domain=cookie_domain,
         expires=expires_at,
         path="/",
     )
@@ -142,9 +143,10 @@ def logout(
     if raw_token:
         AuthService.revoke_refresh_token(db, raw_token)
 
+    cookie_domain = settings.COOKIE_DOMAIN if settings.COOKIE_DOMAIN and settings.COOKIE_DOMAIN.strip() else None
     response.delete_cookie(
         key="refresh_token",
-        domain=settings.COOKIE_DOMAIN,
+        domain=cookie_domain,
         path="/",
     )
     return LogoutResponse(message="Logged out")

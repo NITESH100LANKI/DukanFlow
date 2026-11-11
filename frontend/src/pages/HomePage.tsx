@@ -38,28 +38,28 @@ export const HomePage: React.FC = () => {
     en: {
       heading: 'Welcome to DukaanFlow',
       subheading: 'Digitizing FMCG Retailer Ordering & Message Capture',
-      scopeTitle: 'Phase 2 Foundation Initialized',
+      scopeTitle: 'Platform Modules Active',
       scopeDesc:
-        'FastAPI backend, React TypeScript frontend, PostgreSQL configuration, and Docker development container are configured and verified.',
+        'FastAPI backend, React TypeScript frontend, PostgreSQL database, authentication, product catalogue, schemes, order lifecycle, AI capture, and exports are fully implemented.',
       backendStatus: 'Backend API Status',
       dbStatus: 'Database Connection',
       version: 'Platform Version',
       statusOk: 'Operational',
       statusDegraded: 'Degraded',
-      readyText: 'Ready for Phase 3: Authentication & Catalogue implementation.',
+      readyText: 'Platform fully operational with role-based access for Retailers and Order Desk staff.',
     },
     hi: {
       heading: 'दुकानफ्लो में आपका स्वागत है',
       subheading: 'एफएमसीजी रिटेलर ऑर्डरिंग एवं मैसेज कैप्चर डिजिटाइजेशन',
-      scopeTitle: 'फेज 2 फाउंडेशन सफलतापूर्वक आरंभ',
+      scopeTitle: 'प्लेटफॉर्म मॉड्यूल सक्रिय',
       scopeDesc:
-        'फास्टएपीआई बैकएंड, रिएक्ट टाइपस्क्रिप्ट फ्रंटएंड, पोस्टग्रेसक्यूएल कॉन्फ़िगरेशन और डॉकर डेवलपमेंट कंटेनर सत्यापित हैं।',
+        'फास्टएपीआई बैकएंड, रिएक्ट टाइपस्क्रिप्ट फ्रंटएंड, पोस्टग्रेसक्यूएल डेटाबेस, प्रमाणीकरण, उत्पाद कैटलॉग, स्कीम्स, ऑर्डर चक्र, एआई कैप्चर और निर्यात पूर्ण रूप से लागू हैं।',
       backendStatus: 'बैकएंड एपीआई स्थिति',
       dbStatus: 'डेटाबेस कनेक्शन',
       version: 'प्लेटफॉर्म संस्करण',
       statusOk: 'सक्रिय (ओके)',
       statusDegraded: 'आंशिक सक्रिय',
-      readyText: 'फेज 3 (प्रमाणीकरण एवं कैटलॉग) के लिए तैयार।',
+      readyText: 'रिटेलर और ऑर्डर डेस्क स्टाफ के लिए रोल-आधारित पहुंच के साथ प्लेटफॉर्म पूरी तरह से चालू है।',
     },
   };
 

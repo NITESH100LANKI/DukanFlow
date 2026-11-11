@@ -145,6 +145,13 @@ class Settings(BaseSettings):
             self.CORS_ORIGIN_REGEX = None
         return self
 
+    @field_validator("COOKIE_DOMAIN", mode="before")
+    @classmethod
+    def normalize_cookie_domain(cls, v: Any) -> Optional[str]:
+        if not v or (isinstance(v, str) and not v.strip()):
+            return None
+        return v.strip()
+
     @field_validator("COOKIE_SECURE", mode="before")
     @classmethod
     def default_cookie_secure(cls, v: Any, values: Any) -> bool:

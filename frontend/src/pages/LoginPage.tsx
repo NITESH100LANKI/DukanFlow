@@ -141,8 +141,22 @@ export const LoginPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-primary-50 border border-primary-200 text-primary-800 text-xs p-2.5 rounded-xl">
-                💡 <strong>Demo Mode:</strong> Use registered mobile or test seeded retailer. Demo OTP is <strong>123456</strong>.
+              <div className="bg-primary-50 border border-primary-200 text-primary-800 text-xs p-3 rounded-xl space-y-1.5">
+                <div className="font-bold flex items-center justify-between">
+                  <span>💡 Demo Retailer Credentials:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobile('9876543210');
+                      setError(null);
+                    }}
+                    className="text-xs bg-primary-600 hover:bg-primary-700 text-white font-semibold px-2 py-0.5 rounded transition-colors"
+                  >
+                    Auto-Fill
+                  </button>
+                </div>
+                <div>Mobile: <strong>9876543210</strong> (Sharma Kirana Store)</div>
+                <div>Demo OTP: <strong>123456</strong></div>
               </div>
 
               <button
@@ -225,6 +239,25 @@ export const LoginPage: React.FC = () => {
             />
           </div>
 
+          <div className="bg-primary-50 border border-primary-200 text-primary-800 text-xs p-3 rounded-xl space-y-1.5">
+            <div className="font-bold flex items-center justify-between">
+              <span>💡 Demo Staff Credentials:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('desk@dukaanflow.in');
+                  setPassword('DeskSecret123');
+                  setError(null);
+                }}
+                className="text-xs bg-primary-600 hover:bg-primary-700 text-white font-semibold px-2 py-0.5 rounded transition-colors"
+              >
+                Auto-Fill
+              </button>
+            </div>
+            <div>Email: <strong>desk@dukaanflow.in</strong></div>
+            <div>Password: <strong>DeskSecret123</strong></div>
+          </div>
+
           <button
             type="submit"
             disabled={loading || !email || !password}
@@ -234,6 +267,13 @@ export const LoginPage: React.FC = () => {
           </button>
         </form>
       )}
+
+      {/* B2B Onboarding Notice (No Public Self-Registration) */}
+      <div className="mt-6 pt-4 border-t border-gray-100 text-center">
+        <p className="text-xs text-gray-500">
+          <strong>No public signup?</strong> DukaanFlow is a closed B2B platform. Retailer accounts are verified and registered directly by the FMCG Distributor / Order Desk with approved credit limits and Tally ledgers.
+        </p>
+      </div>
     </div>
   );
 };

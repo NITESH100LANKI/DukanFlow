@@ -40,12 +40,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
+        const url = originalRequest?.url || '';
+        const isAuthEndpoint =
+          url.includes('/auth/desk/login') ||
+          url.includes('/auth/retailer/') ||
+          url.includes('/auth/refresh') ||
+          url.includes('/auth/logout');
+
         if (
           error.response?.status === 401 &&
+          originalRequest &&
           !originalRequest._retry &&
-          !originalRequest.url?.includes('/auth/login') &&
-          !originalRequest.url?.includes('/auth/verify-otp') &&
-          !originalRequest.url?.includes('/auth/refresh')
+          !isAuthEndpoint
         ) {
           originalRequest._retry = true;
           try {

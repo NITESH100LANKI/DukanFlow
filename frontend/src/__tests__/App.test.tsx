@@ -45,11 +45,11 @@ describe('App Component', () => {
     expect(screen.getByRole('button', { name: 'हिंदी' })).toBeInTheDocument();
   });
 
-  it('renders Phase 2 status badge and hero content', async () => {
+  it('renders status badge and hero content', async () => {
     await act(async () => {
       render(<App />);
     });
-    expect(screen.getByText('Phase 2 Initialized')).toBeInTheDocument();
+    expect(screen.getByText('Production Ready')).toBeInTheDocument();
     expect(screen.getByText('Welcome to DukaanFlow')).toBeInTheDocument();
   });
 });
